@@ -72,7 +72,10 @@ export class IbuCalculatorTool implements BuiltinTool<IbuCalculatorInput> {
         const aa = h.alpha_acids_percent ?? HOP_AA[h.variety.toLowerCase()];
         if (aa === undefined) return Promise.resolve({ isError: true, output: `Unknown hop: "${h.variety}"` });
         const util = this.util(model, h, args.boil_gravity, args.boil_duration_minutes ?? 60);
-        const ibu = (h.grams * aa * util * 1000) / (args.batch_size_liters * (1 + (args.boil_gravity - 1.050) / 0.2));
+        // IBU = (grams × AA% × utilization × 10) / (volume × gravity_correction)
+        // AA% is already in percentage form (e.g. 4.5), not fraction (0.045).
+        const gravityCorrection = 1 + (args.boil_gravity - 1.050) / 0.2;
+        const ibu = (h.grams * aa * util * 10) / (args.batch_size_liters * gravityCorrection);
         total += ibu;
         lines.push(`  ${h.variety} (${h.form}, ${h.use}, ${h.grams}g @ ${h.time_minutes}min, ${aa}% AA) → **${ibu.toFixed(1)} IBU**`);
       }
