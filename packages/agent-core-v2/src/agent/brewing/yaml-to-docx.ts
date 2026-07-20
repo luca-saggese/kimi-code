@@ -1,6 +1,6 @@
 /**
  * YAML to DOCX converter — converts a beer recipe YAML file to a .docx document.
- * Uses a built-in Python script (python-docx) via Bash.
+ * Pure Node.js: uses js-yaml for parsing, generates Office Open XML (docx is a zip of XML).
  */
 
 import { z } from 'zod';
@@ -16,180 +16,258 @@ export const YamlToDocxInputSchema = z.object({
 
 export type YamlToDocxInput = z.infer<typeof YamlToDocxInputSchema>;
 
-const PYTHON_SCRIPT = `import sys, yaml, os
-from docx import Document
-from docx.shared import Inches, Pt, Cm, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+function escapeXml(text: string): string {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
 
-def add_heading(doc, text, level=1):
-    h = doc.add_heading(text, level=level)
-    return h
+function yamlToDocx(inputPath: string, outputPath: string): string {
+  const JSZip = require('../../_base/utils/jszip.js'); // We'll write a tiny zip helper
+  const fs = require('node:fs');
+  const yaml = require('js-yaml');
 
-def add_key_value(doc, key, value, bold_key=True):
-    p = doc.add_paragraph()
-    if bold_key:
-        run = p.add_run(f"{key}: ")
-        run.bold = True
-    p.add_run(str(value) if value is not None else '-')
-    return p
+  const raw = fs.readFileSync(inputPath, 'utf-8');
+  const data: Record<string, unknown> = yaml.load(raw);
 
-def add_table(doc, headers, rows):
-    table = doc.add_table(rows=1 + len(rows), cols=len(headers))
-    table.style = 'Light Grid Accent 1'
-    for i, h in enumerate(headers):
-        cell = table.rows[0].cells[i]
-        cell.text = str(h)
-        for p in cell.paragraphs:
-            for run in p.runs:
-                run.bold = True
-    for ri, row in enumerate(rows):
-        for ci, val in enumerate(row):
-            table.rows[ri + 1].cells[ci].text = str(val) if val is not None else '-'
-    doc.add_paragraph()
-    return table
+  // Build document.xml
+  let body = '';
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: yaml_to_docx.py <input.yaml> [output.docx]")
-        sys.exit(1)
+  // Title
+  const nome = String(data['nome'] ?? 'Ricetta di Birra');
+  body += `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="36"/></w:rPr><w:t xml:space="preserve">${escapeXml(nome)}</w:t></w:r></w:p>`;
 
-    input_path = sys.argv[1]
-    output_path = sys.argv[2] if len(sys.argv) > 2 else os.path.splitext(input_path)[0] + '.docx'
+  if (data['stile']) {
+    body += `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:i/><w:sz w:val="22"/></w:rPr><w:t xml:space="preserve">${escapeXml(String(data['stile']))}</w:t></w:r></w:p>`;
+  }
 
-    with open(input_path, 'r') as f:
-        data = yaml.safe_load(f)
+  if (data['descrizione']) {
+    body += `<w:p><w:r><w:rPr><w:sz w:val="21"/></w:rPr><w:t xml:space="preserve">${escapeXml(String(data['descrizione']))}</w:t></w:r></w:p>`;
+  }
 
-    doc = Document()
+  function heading(text: string): void {
+    body += `<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="C0392B"/></w:pBdr></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="26"/><w:color w:val="C0392B"/></w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`;
+  }
 
-    # Title
-    title = doc.add_heading(data.get('nome', 'Ricetta di Birra'), level=0)
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+  function kv(label: string, value: unknown): void {
+    body += `<w:p><w:r><w:rPr><w:b/><w:sz w:val="21"/></w:rPr><w:t xml:space="preserve">${escapeXml(label)}: </w:t></w:r><w:r><w:rPr><w:sz w:val="21"/></w:rPr><w:t xml:space="preserve">${escapeXml(value != null ? String(value) : '-')}</w:t></w:r></w:p>`;
+  }
 
-    if data.get('stile'):
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = p.add_run(f"Stile: {data['stile']}")
-        run.italic = True
+  function simpleTable(header: string[], rows: string[][]): void {
+    body += '<w:tbl><w:tblPr><w:tblW w:w="9000" w:type="dxa"/><w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="C0392B"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="C0392B"/></w:tblBorders></w:tblPr><w:tblGrid>';
+    const colWidth = Math.floor(9000 / header.length);
+    for (let i = 0; i < header.length; i++) body += `<w:gridCol w:w="${colWidth}"/>`;
+    body += '</w:tblGrid>';
 
-    if data.get('descrizione'):
-        doc.add_paragraph(data['descrizione'])
+    // Header row
+    body += '<w:tr>';
+    for (const h of header) {
+      body += `<w:tc><w:tcPr><w:shd w:fill="C0392B" w:val="clear"/></w:tcPr><w:p><w:r><w:rPr><w:b/><w:color w:val="FFFFFF"/><w:sz w:val="19"/></w:rPr><w:t xml:space="preserve">${escapeXml(h)}</w:t></w:r></w:p></w:tc>`;
+    }
+    body += '</w:tr>';
 
-    doc.add_paragraph()
+    // Data rows
+    for (const row of rows) {
+      body += '<w:tr>';
+      for (let c = 0; c < header.length; c++) {
+        body += `<w:tc><w:p><w:r><w:rPr><w:sz w:val="19"/></w:rPr><w:t xml:space="preserve">${escapeXml(row[c] ?? '-')}</w:t></w:r></w:p></w:tc>`;
+      }
+      body += '</w:tr>';
+    }
+    body += '</w:tbl>';
+  }
 
-    # Parameters
-    params = data.get('parametri', {})
-    if params:
-        add_heading(doc, 'Parametri', level=1)
-        param_order = ['batch_size_litri', 'og', 'fg', 'abv_percent', 'ibu', 'ebc',
-                       'efficienza_percent', 'impianto', 'volume_fermentatore']
-        for key in param_order:
-            if key in params:
-                add_key_value(doc, key.replace('_', ' ').title(), params[key])
-        for key, val in params.items():
-            if key not in param_order:
-                add_key_value(doc, key.replace('_', ' ').title(), val)
+  // Parameters
+  const params = data['parametri'] as Record<string, unknown> | undefined;
+  if (params && Object.keys(params).length > 0) {
+    heading('Parametri');
+    for (const [k, v] of Object.entries(params)) {
+      kv(k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()), v);
+    }
+  }
 
-    # Grist
-    grist = data.get('grist', [])
-    if grist:
-        add_heading(doc, 'Grist', level=1)
-        headers = ['Malto', 'Kg', '%', 'Note']
-        rows = [[g.get('malto', ''), g.get('kg', ''), g.get('percent', ''), g.get('note', '')] for g in grist]
-        add_table(doc, headers, rows)
+  // Grist
+  const grist = data['grist'] as Array<Record<string, unknown>> | undefined;
+  if (grist && grist.length > 0) {
+    heading('Grist');
+    simpleTable(['Malto', 'Kg', '%', 'Note'],
+      grist.map((g) => [String(g['malto'] ?? ''), String(g['kg'] ?? ''), String(g['percent'] ?? ''), String(g['note'] ?? '')]));
+  }
 
-    # Hops
-    hops = data.get('luppolatura', [])
-    if hops:
-        add_heading(doc, 'Luppolatura', level=1)
-        headers = ['Variet\u00e0', 'Grammi', 'Tempo (min)', 'Uso', 'AA%', 'IBU stimati', 'Note']
-        rows = [[h.get('varieta', ''), h.get('grammi', ''), h.get('tempo_min', ''),
-                 h.get('uso', ''), h.get('aa_percent', ''), h.get('ibu_stimati', ''),
-                 h.get('note', '')] for h in hops]
-        add_table(doc, headers, rows)
+  // Hops
+  const hops = data['luppolatura'] as Array<Record<string, unknown>> | undefined;
+  if (hops && hops.length > 0) {
+    heading('Luppolatura');
+    simpleTable(['Varietà', 'g', 'Tempo', 'Uso', 'AA%', 'IBU', 'Note'],
+      hops.map((h) => [
+        String(h['varieta'] ?? ''), String(h['grammi'] ?? ''), String(h['tempo_min'] ?? ''),
+        String(h['uso'] ?? ''), String(h['aa_percent'] ?? ''), String(h['ibu_stimati'] ?? ''),
+        String(h['note'] ?? ''),
+      ]));
+  }
 
-    # Yeast
-    yeast = data.get('lievito', {})
-    if yeast:
-        add_heading(doc, 'Lievito', level=1)
-        for key, val in yeast.items():
-            add_key_value(doc, key.replace('_', ' ').title(), val)
+  // Sections
+  for (const sec of ['lievito', 'acqua', 'mash', 'bollitura', 'fermentazione', 'carbonazione']) {
+    const obj = data[sec] as Record<string, unknown> | undefined;
+    if (obj && Object.keys(obj).length > 0) {
+      heading(sec.charAt(0).toUpperCase() + sec.slice(1));
+      for (const [k, v] of Object.entries(obj)) {
+        kv(k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()), v);
+      }
+    }
+  }
 
-    # Water
-    water = data.get('acqua', {})
-    if water:
-        add_heading(doc, 'Acqua', level=1)
-        for key, val in water.items():
-            add_key_value(doc, key.replace('_', ' ').title(), val)
+  // Critical notes
+  const notes = data['note_critiche'];
+  if (notes) {
+    heading('Note Critiche');
+    const items: string[] = Array.isArray(notes) ? notes : String(notes).split('\n');
+    for (const n of items) {
+      const trimmed = String(n).trim();
+      if (!trimmed) continue;
+      body += `<w:p><w:r><w:rPr><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">• ${escapeXml(trimmed)}</w:t></w:r></w:p>`;
+    }
+  }
 
-    # Mash
-    mash = data.get('mash', {})
-    if mash:
-        add_heading(doc, 'Mash', level=1)
-        for key, val in mash.items():
-            add_key_value(doc, key.replace('_', ' ').title(), val)
+  // Alternatives
+  const alts = data['alternative'] as Array<Record<string, unknown>> | undefined;
+  if (alts && alts.length > 0) {
+    heading('Alternative');
+    for (const a of alts) {
+      body += `<w:p><w:r><w:rPr><w:b/><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">• ${escapeXml(String(a['descrizione'] ?? ''))}</w:t></w:r></w:p>`;
+      if (a['cambiamenti']) body += `<w:p><w:r><w:rPr><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">  Cambiamenti: ${escapeXml(String(a['cambiamenti']))}</w:t></w:r></w:p>`;
+      if (a['impatto']) body += `<w:p><w:r><w:rPr><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">  Impatto: ${escapeXml(String(a['impatto']))}</w:t></w:r></w:p>`;
+    }
+  }
 
-    # Boil
-    boil = data.get('bollitura', {})
-    if boil:
-        add_heading(doc, 'Bollitura', level=1)
-        for key, val in boil.items():
-            add_key_value(doc, key.replace('_', ' ').title(), val)
+  // Footer
+  body += `<w:p><w:r><w:rPr><w:i/><w:sz w:val="16"/><w:color w:val="999999"/></w:rPr><w:t xml:space="preserve">Generato da Maestra Birraia AI</w:t></w:r></w:p>`;
 
-    # Fermentation
-    ferm = data.get('fermentazione', {})
-    if ferm:
-        add_heading(doc, 'Fermentazione', level=1)
-        for key, val in ferm.items():
-            add_key_value(doc, key.replace('_', ' ').title(), val)
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+            xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<w:body>${body}</w:body></w:document>`;
 
-    # Carbonation
-    carb = data.get('carbonazione', {})
-    if carb:
-        add_heading(doc, 'Carbonazione', level=1)
-        for key, val in carb.items():
-            add_key_value(doc, key.replace('_', ' ').title(), val)
+  const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`;
 
-    # Critical notes
-    notes = data.get('note_critiche', [])
-    if notes:
-        add_heading(doc, 'Note Critiche', level=1)
-        for note in notes:
-            doc.add_paragraph(note, style='List Bullet')
+  const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`;
 
-    # Alternatives
-    alts = data.get('alternative', [])
-    if alts:
-        add_heading(doc, 'Alternative', level=1)
-        for alt in alts:
-            if isinstance(alt, dict):
-                doc.add_paragraph(alt.get('descrizione', ''), style='List Bullet')
-                if alt.get('cambiamenti'):
-                    doc.add_paragraph(f"Cambiamenti: {alt['cambiamenti']}")
-                if alt.get('impatto'):
-                    doc.add_paragraph(f"Impatto: {alt['impatto']}")
+  // Simple zip: store method, no compression (compatible with all readers)
+  function crc32(data: Buffer): number {
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < data.length; i++) {
+      crc ^= data[i]!;
+      for (let j = 0; j < 8; j++) {
+        crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0);
+      }
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
 
-    doc.save(output_path)
-    print(f"DOCX saved: {output_path}")
+  interface ZipEntry {
+    name: string;
+    data: Buffer;
+  }
 
-if __name__ == '__main__':
-    main()
-`;
+  function buildZip(entries: ZipEntry[]): Buffer {
+    const chunks: Buffer[] = [];
+    const localHeaders: Array<{ offset: number; name: string; crc: number; size: number }> = [];
+    let offset = 0;
 
-const VENV_SETUP = `
-import subprocess, sys, os, venv
+    for (const entry of entries) {
+      const nameBuf = Buffer.from(entry.name, 'utf-8');
+      const crc = crc32(entry.data);
+      const header = Buffer.alloc(30 + nameBuf.length);
+      let pos = 0;
+      header.writeUInt32LE(0x04034b50, pos); pos += 4; // local file header sig
+      header.writeUInt16LE(20, pos); pos += 2; // version needed
+      header.writeUInt16LE(0x0800, pos); pos += 2; // flags: UTF-8
+      header.writeUInt16LE(0, pos); pos += 2; // compression: store
+      header.writeUInt16LE(0, pos); pos += 2; // mod time
+      header.writeUInt16LE(0, pos); pos += 2; // mod date
+      header.writeUInt32LE(crc, pos); pos += 4;
+      header.writeUInt32LE(entry.data.length, pos); pos += 4; // compressed size
+      header.writeUInt32LE(entry.data.length, pos); pos += 4; // uncompressed size
+      header.writeUInt16LE(nameBuf.length, pos); pos += 2;
+      header.writeUInt16LE(0, pos); pos += 2; // extra field length
+      nameBuf.copy(header, pos);
+      chunks.push(header);
+      chunks.push(entry.data);
+      localHeaders.push({ offset, name: entry.name, crc, size: entry.data.length });
+      offset += header.length + entry.data.length;
+    }
 
-VENV_DIR = os.path.join(os.path.dirname(__file__), '.venv-brewing')
-PIP = os.path.join(VENV_DIR, 'bin', 'pip') if os.name != 'nt' else os.path.join(VENV_DIR, 'Scripts', 'pip.exe')
+    // Central directory
+    const cdChunks: Buffer[] = [];
+    let cdOffset = offset;
+    for (const lh of localHeaders) {
+      const nameBuf = Buffer.from(lh.name, 'utf-8');
+      const cd = Buffer.alloc(46 + nameBuf.length);
+      let pos = 0;
+      cd.writeUInt32LE(0x02014b50, pos); pos += 4;
+      cd.writeUInt16LE(20, pos); pos += 2; // version made by
+      cd.writeUInt16LE(20, pos); pos += 2; // version needed
+      cd.writeUInt16LE(0x0800, pos); pos += 2; // UTF-8
+      cd.writeUInt16LE(0, pos); pos += 2; // compression: store
+      cd.writeUInt16LE(0, pos); pos += 2; // mod time
+      cd.writeUInt16LE(0, pos); pos += 2; // mod date
+      cd.writeUInt32LE(lh.crc, pos); pos += 4;
+      cd.writeUInt32LE(lh.size, pos); pos += 4;
+      cd.writeUInt32LE(lh.size, pos); pos += 4;
+      cd.writeUInt16LE(nameBuf.length, pos); pos += 2;
+      cd.writeUInt16LE(0, pos); pos += 2; // extra
+      cd.writeUInt16LE(0, pos); pos += 2; // comment
+      cd.writeUInt16LE(0, pos); pos += 2; // disk
+      cd.writeUInt16LE(0, pos); pos += 2; // internal attrs
+      cd.writeUInt32LE(0, pos); pos += 4; // external attrs
+      cd.writeUInt32LE(lh.offset, pos); pos += 4;
+      nameBuf.copy(cd, pos);
+      cdChunks.push(cd);
+      cdOffset += cd.length;
+    }
 
-if not os.path.exists(VENV_DIR):
-    venv.create(VENV_DIR, with_pip=True)
-    subprocess.check_call([PIP, 'install', 'pyyaml', 'python-docx'])
-`;
+    // End of central directory
+    const eocd = Buffer.alloc(22);
+    let pos = 0;
+    eocd.writeUInt32LE(0x06054b50, pos); pos += 4;
+    eocd.writeUInt16LE(0, pos); pos += 2;
+    eocd.writeUInt16LE(0, pos); pos += 2;
+    eocd.writeUInt16LE(entries.length, pos); pos += 2;
+    eocd.writeUInt16LE(entries.length, pos); pos += 2;
+    eocd.writeUInt32LE(cdOffset - offset, pos); pos += 4;
+    eocd.writeUInt32LE(offset, pos); pos += 4;
+    eocd.writeUInt16LE(0, pos);
+
+    return Buffer.concat([...chunks, ...cdChunks, eocd]);
+  }
+
+  const zip = buildZip([
+    { name: '[Content_Types].xml', data: Buffer.from(contentTypesXml, 'utf-8') },
+    { name: '_rels/.rels', data: Buffer.from(relsXml, 'utf-8') },
+    { name: 'word/document.xml', data: Buffer.from(documentXml, 'utf-8') },
+  ]);
+
+  fs.writeFileSync(outputPath, zip);
+  return `DOCX saved: ${outputPath}`;
+}
+
+// ── Tool ─────────────────────────────────────────────────────────────────────
 
 export class YamlToDocxTool implements BuiltinTool<YamlToDocxInput> {
   readonly name = 'yaml_to_docx' as const;
   readonly description =
-    'Convert a beer recipe YAML file to a .docx (Word) document. Handles all standard recipe fields (parameters, grist, hops, yeast, water, mash, boil, fermentation, carbonation, notes, alternatives) and any extra custom fields.';
+    'Convert a beer recipe YAML file to a .docx (Word) document. Pure Node.js — generates valid Office Open XML, no external dependencies beyond js-yaml.';
   readonly parameters: Record<string, unknown> = toInputJsonSchema(YamlToDocxInputSchema);
 
   resolveExecution(args: YamlToDocxInput): ToolExecution {
@@ -199,44 +277,16 @@ export class YamlToDocxTool implements BuiltinTool<YamlToDocxInput> {
     return {
       description: `Convert ${inputFile} → DOCX`,
       approvalRule: this.name,
-      execute: async () => {
+      execute: () => {
         try {
-          const fs = await import('node:fs');
-          const path = await import('node:path');
-          const os = await import('node:os');
-          const { execSync } = await import('node:child_process');
-
+          const fs = require('node:fs');
           if (!fs.existsSync(inputFile)) {
-            return { isError: true, output: `File not found: ${inputFile}` };
+            return Promise.resolve({ isError: true, output: `File not found: ${inputFile}` });
           }
-
-          // Write the Python script to a temp location
-          const tmpDir = os.tmpdir();
-          const scriptPath = path.join(tmpDir, 'kimi_brewing_yaml_to_docx.py');
-          fs.writeFileSync(scriptPath, PYTHON_SCRIPT, 'utf-8');
-
-          // Ensure venv with python-docx + pyyaml
-          const venvDir = path.join(tmpDir, '.venv-brewing');
-          const pythonCmd = path.join(venvDir, 'bin', 'python3');
-          const pipCmd = path.join(venvDir, 'bin', 'pip');
-
-          if (!fs.existsSync(venvDir)) {
-            execSync(`python3 -m venv "${venvDir}"`, { stdio: 'pipe' });
-            execSync(`"${pipCmd}" install pyyaml python-docx`, { stdio: 'pipe' });
-          }
-
-          // Execute
-          const result = execSync(
-            `"${pythonCmd}" "${scriptPath}" "${inputFile}" "${outputFile}"`,
-            { encoding: 'utf-8', timeout: 30000 },
-          );
-
-          return { output: result.trim() };
+          const result = yamlToDocx(inputFile, outputFile);
+          return Promise.resolve({ output: result });
         } catch (error) {
-          return {
-            isError: true,
-            output: error instanceof Error ? error.message : String(error),
-          };
+          return Promise.resolve({ isError: true, output: error instanceof Error ? error.message : String(error) });
         }
       },
     };

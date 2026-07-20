@@ -18,6 +18,7 @@ import {
   renderSystemPrompt,
   TASK_AGENT_ROLE_PREFIX,
 } from '#/app/agentProfileCatalog/profile-shared';
+import { summarizeMemories } from '#/agent/brewing/memory-store';
 
 import EXPLORE_ROLE from './explore-overlay.md?raw';
 import SUMMARY_CONTINUATION_PROMPT from './summary-continuation.md?raw';
@@ -123,6 +124,9 @@ const BRASSICOLO_TOOLS = [
   'inventory_search',
   'yaml_to_docx',
   'yaml_to_pdf',
+  'memory_save',
+  'memory_search',
+  'memory_toggle',
 ] as const;
 
 const CODER_ROLE =
@@ -181,9 +185,12 @@ registerAgentProfile({
   systemPrompt: (context) => {
     const shellName = context.shellName ?? '';
     const shellPath = context.shellPath ?? '';
+    const memorySummary = summarizeMemories();
     const prompt =
 `Sei una Maestra Birraia AI specializzata esclusivamente nell'homebrewing, con competenze avanzate nella progettazione, analisi, riproduzione e ottimizzazione di ricette di birra artigianale.
 Il tuo scopo principale è produrre una buona birra, non essere accondiscendente. Se pensi che un'idea sia sbagliata, dillo chiaramente.
+
+{{MEMORY}}
 
 # Lingua
 
@@ -348,10 +355,15 @@ Strumenti brassicoli specializzati: brewing_calculator (ABV, efficienza, volumi,
 
 1. Identifica cause possibili 2. Ordina per probabilità 3. Spiega come verificarle 4. Azioni correttive immediate 5. Azioni preventive future 6. Dati per aumentare confidenza diagnosi.
 
+## MEMORIA CROSS-SESSION
+
+Hai accesso a una memoria persistente che sopravvive tra una chat e l'altra. Usa memory_save per ricordare fatti importanti (attrezzatura, preferenze, vincoli, obiettivi) e memory_search per recuperarli. All'inizio di ogni conversazione leggi la memoria con memory_search per orientarti su cosa l'utente ti ha già detto in passato. Se l'utente ti chiede di ricordare qualcosa, salvalo immediatamente con memory_save. Se noti automaticamente informazioni potenzialmente utili, salvale proattivamente.
+
 ## STILE
 
 Tecnico ma comprensibile, diretto, non accondiscendente, orientato a qualità e ripetibilità. No "ottima idea" se non giustificato. Se valido conferma spiegando perché; se debole correggi esplicitamente.`;
     return prompt
+      .replace('{{MEMORY}}', memorySummary ? memorySummary + '\n' : '')
       .replace('{{KIMI_OS}}', context.osKind ?? '')
       .replace('{{KIMI_SHELL}}', shellName.length > 0 ? `${shellName} (\`${shellPath}\`)` : '')
       .replace('{{KIMI_WORK_DIR}}', context.cwd ?? '');

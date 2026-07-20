@@ -1,6 +1,7 @@
 /**
- * YAML to PDF converter — converts a beer recipe YAML file to a .pdf document
- * via weasyprint with Unicode support for Italian text.
+ * YAML to PDF converter — converts a beer recipe YAML file to a PDF document.
+ * Pure Node.js: uses js-yaml for parsing, generates HTML, converts to PDF via
+ * a minimal built-in PDF writer (no external dependencies beyond js-yaml).
  */
 
 import { z } from 'zod';
@@ -16,141 +17,279 @@ export const YamlToPdfInputSchema = z.object({
 
 export type YamlToPdfInput = z.infer<typeof YamlToPdfInputSchema>;
 
-const PYTHON_SCRIPT = `import sys, yaml, os
+// ── Minimal PDF generator (no external deps) ────────────────────────────────
 
-def css():
-    return """
-    @page { size: A4; margin: 2cm; }
-    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.5; }
-    h1 { font-size: 22pt; text-align: center; color: #c0392b; margin-bottom: 4pt; }
-    h2 { font-size: 14pt; color: #c0392b; border-bottom: 2px solid #c0392b; padding-bottom: 4pt; margin-top: 20pt; }
-    .style-line { text-align: center; font-style: italic; color: #7f8c8d; margin-bottom: 12pt; }
-    .description { background: #f9f9f9; padding: 10pt; border-left: 4px solid #c0392b; margin-bottom: 16pt; }
-    table { width: 100%; border-collapse: collapse; margin: 10pt 0 16pt 0; font-size: 10pt; }
-    th { background: #c0392b; color: white; padding: 6pt 8pt; text-align: left; font-weight: 600; }
-    td { padding: 5pt 8pt; border-bottom: 1px solid #e0e0e0; }
-    tr:nth-child(even) td { background: #fafafa; }
-    .param-row { display: flex; gap: 20pt; margin: 4pt 0; }
-    .param-label { font-weight: 600; min-width: 120pt; color: #555; }
-    .param-value { color: #1a1a1a; }
-    ul { margin: 4pt 0; padding-left: 18pt; }
-    li { margin: 2pt 0; }
-    .footer { text-align: center; font-size: 9pt; color: #bdc3c7; margin-top: 30pt; border-top: 1px solid #eee; padding-top: 10pt; }
-    """
+interface PdfState {
+  pages: string[];
+  currentPage: string;
+  pageHeight: number;
+  currentY: number;
+  pageMargin: number;
+}
 
-def esc(text):
-    return str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+function createPdfWriter(margin = 50): PdfState {
+  return {
+    pages: [],
+    currentPage: '',
+    pageHeight: 842, // A4 at 72 DPI
+    currentY: margin,
+    pageMargin: margin,
+  };
+}
 
-def fmt_val(v):
-    if v is None: return '-'
-    return esc(str(v))
+function emitPage(state: PdfState): void {
+  state.pages.push(state.currentPage);
+  state.currentPage = '';
+  state.currentY = state.pageMargin;
+}
 
-def render_params(params):
-    order = ['batch_size_litri', 'og', 'fg', 'abv_percent', 'ibu', 'ebc',
-             'efficienza_percent', 'impianto', 'volume_fermentatore']
-    html = '<div>'
-    for key in order:
-        if key in params:
-            html += f'<div class="param-row"><span class="param-label">{esc(key.replace("_", " ").title())}:</span><span class="param-value">{fmt_val(params[key])}</span></div>'
-    for key, val in params.items():
-        if key not in order:
-            html += f'<div class="param-row"><span class="param-label">{esc(key.replace("_", " ").title())}:</span><span class="param-value">{fmt_val(val)}</span></div>'
-    html += '</div>'
-    return html
+function streamStart(): string {
+  return `%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`;
+}
 
-def render_table(data, headers, keys):
-    if not data: return ''
-    html = '<table><tr>' + ''.join(f'<th>{esc(h)}</th>' for h in headers) + '</tr>'
-    for row in data:
-        html += '<tr>' + ''.join(f'<td>{fmt_val(row.get(k, ""))}</td>' for k in keys) + '</tr>'
-    html += '</table>'
-    return html
+function finishPdf(state: PdfState): string {
+  // Final object builder
+  const contentObjs: string[] = [];
+  const contentRefs: string[] = [];
+  for (let i = 0; i < state.pages.length; i++) {
+    const objNum = 3 + i;
+    contentObjs.push(`${objNum} 0 obj\n<< /Length ${state.pages[i].length} >>\nstream\n${state.pages[i]}\nendstream\nendobj\n`);
+    contentRefs.push(`${objNum} 0 R`);
+  }
+  const kids = contentRefs.map((r) => `  /Contents ${r}\n  /Parent 2 0 R\n  /Type /Page\n  /MediaBox [ 0 0 595 842 ]`).join('\n');
+  const pageObjs: string[] = [];
+  for (let i = 0; i < state.pages.length; i++) {
+    const objNum = 3 + state.pages.length + i;
+    pageObjs.push(`${objNum} 0 obj\n<<${kids.split('\n')[i * 4] ?? ''} >>\nendobj\n`);
+  }
+  const kidsRef = state.pages.map((_, i) => `${3 + state.pages.length + i} 0 R`).join(' ');
+  return [
+    streamStart(),
+    `2 0 obj\n<< /Type /Pages /Kids [ ${kidsRef} ] /Count ${state.pages.length} >>\nendobj\n`,
+    ...contentObjs,
+    ...pageObjs,
+    'trailer\n<< /Size ' + (3 + state.pages.length * 2) + ' /Root 1 0 R >>',
+    '%%EOF',
+  ].join('\n');
+}
 
-def render_kv(data, section_title):
-    if not data: return ''
-    html = f'<h2>{esc(section_title)}</h2>'
-    for k, v in data.items():
-        html += f'<div class="param-row"><span class="param-label">{esc(k.replace("_", " ").title())}:</span><span class="param-value">{fmt_val(v)}</span></div>'
-    return html
+// ── HTML to PDF stream operations ───────────────────────────────────────────
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: yaml_to_pdf.py <input.yaml> [output.pdf]")
-        sys.exit(1)
-    input_path = sys.argv[1]
-    output_path = sys.argv[2] if len(sys.argv) > 2 else os.path.splitext(input_path)[0] + '.pdf'
+function encodePdfText(text: string): string {
+  return text
+    .replace(/\\/g, '\\\\')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)')
+    .replace(/\r/g, '');
+}
 
-    with open(input_path, 'r') as f:
-        data = yaml.safe_load(f)
+function writeText(state: PdfState, text: string, x: number, y: number, fontSize: number, fontName = 'F1'): void {
+  state.currentPage += `BT /${fontName} ${fontSize} Tf ${x} ${state.pageHeight - y} Td (${encodePdfText(text)}) Tj ET\n`;
+}
 
-    html = f'''<!DOCTYPE html><html><head><meta charset="utf-8"><style>{css()}</style></head><body>'''
-    html += f'<h1>{esc(data.get("nome", "Ricetta di Birra"))}</h1>'
-    if data.get('stile'):
-        html += f'<p class="style-line">{esc(data["stile"])}</p>'
-    if data.get('descrizione'):
-        html += f'<div class="description">{esc(data["descrizione"])}</div>'
-    params = data.get('parametri', {})
-    if params:
-        html += '<h2>Parametri</h2>'
-        html += render_params(params)
-    grist = data.get('grist', [])
-    if grist:
-        html += '<h2>Grist</h2>'
-        html += render_table(grist, ['Malto', 'Kg', '%', 'Note'], ['malto', 'kg', 'percent', 'note'])
-    hops = data.get('luppolatura', [])
-    if hops:
-        html += '<h2>Luppolatura</h2>'
-        html += render_table(hops, ['Variet\u00e0', 'g', 'Tempo', 'Uso', 'AA%', 'IBU', 'Note'],
-                             ['varieta', 'grammi', 'tempo_min', 'uso', 'aa_percent', 'ibu_stimati', 'note'])
-    html += render_kv(data.get('lievito', {}), 'Lievito')
-    html += render_kv(data.get('acqua', {}), 'Acqua')
-    html += render_kv(data.get('mash', {}), 'Mash')
-    html += render_kv(data.get('bollitura', {}), 'Bollitura')
-    html += render_kv(data.get('fermentazione', {}), 'Fermentazione')
-    html += render_kv(data.get('carbonazione', {}), 'Carbonazione')
-    notes = data.get('note_critiche', [])
-    if notes:
-        html += '<h2>Note Critiche</h2><ul>'
-        # Può essere una lista o una stringa multilinea
-        if isinstance(notes, str):
-            for line in notes.strip().split('\\n'):
-                line = line.strip()
-                if line:
-                    html += f'<li>{esc(line)}</li>'
-        else:
-            for n in notes:
-                html += f'<li>{esc(n)}</li>'
-        html += '</ul>'
-    alts = data.get('alternative', [])
-    if alts:
-        html += '<h2>Alternative</h2><ul>'
-        for a in alts:
-            if isinstance(a, dict):
-                html += f'<li><strong>{esc(a.get("descrizione", ""))}</strong>'
-                if a.get('cambiamenti'): html += f'<br/>Cambiamenti: {esc(a["cambiamenti"])}'
-                if a.get('impatto'): html += f'<br/>Impatto: {esc(a["impatto"])}'
-                html += '</li>'
-        html += '</ul>'
-    html += '<div class="footer">Generato da Maestra Birraia AI — Kimi Code Brewing Assistant</div>'
-    html += '</body></html>'
+function writeMultilineText(state: PdfState, text: string, x: number, fontSize: number, maxWidth: number, fontName = 'F1'): void {
+  const words = text.split(' ');
+  let line = '';
+  const avgCharWidth = fontSize * 0.55;
+  let y = state.currentY;
+  for (const word of words) {
+    const trial = line ? line + ' ' + word : word;
+    if (trial.length * avgCharWidth > maxWidth && line.length > 0) {
+      if (y > state.pageHeight - state.pageMargin) { emitPage(state); y = state.pageMargin; }
+      writeText(state, line, x, y, fontSize, fontName);
+      y += fontSize * 1.4;
+      line = word;
+    } else {
+      line = trial;
+    }
+  }
+  if (line.length > 0) {
+    if (y > state.pageHeight - state.pageMargin) { emitPage(state); y = state.pageMargin; }
+    writeText(state, line, x, y, fontSize, fontName);
+    y += fontSize * 1.4;
+  }
+  state.currentY = y;
+}
 
-    # Write HTML to temp file, convert to PDF via weasyprint
-    tmp_html = output_path.replace('.pdf', '.tmp.html')
-    with open(tmp_html, 'w', encoding='utf-8') as f:
-        f.write(html)
-    from weasyprint import HTML
-    HTML(filename=tmp_html).write_pdf(output_path)
-    os.unlink(tmp_html)
-    print(f"PDF saved: {output_path}")
+// ── Font definitions ────────────────────────────────────────────────────────
 
-if __name__ == '__main__':
-    main()
+const FONT_DEFS = `3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>
+endobj
 `;
+
+// ── YAML → styled PDF ───────────────────────────────────────────────────────
+
+function escapeHtml(text: string): string {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function yamlToPdf(inputPath: string, outputPath: string): string {
+  const fs = require('node:fs');
+  const yaml = require('js-yaml');
+
+  const raw = fs.readFileSync(inputPath, 'utf-8');
+  const data: Record<string, unknown> = yaml.load(raw);
+
+  const state = createPdfWriter(45);
+  const f = { norm: 'F1', bold: 'F2', italic: 'F3' };
+
+  // Title
+  const nome = String(data['nome'] ?? 'Ricetta di Birra');
+  writeText(state, nome, 45, state.currentY, 20, f.bold);
+  state.currentY += 28;
+
+  // Style
+  if (data['stile']) {
+    writeText(state, String(data['stile']), 45, state.currentY, 12, f.italic);
+    state.currentY += 20;
+  }
+
+  // Description
+  if (data['descrizione']) {
+    state.currentY += 4;
+    writeMultilineText(state, String(data['descrizione']), 45, 10, 500, f.norm);
+    state.currentY += 8;
+  }
+
+  // Helper: section heading
+  function section(title: string): void {
+    if (state.currentY > 780) emitPage(state);
+    writeText(state, title, 45, state.currentY, 14, f.bold);
+    state.currentY += 22;
+  }
+
+  // Parameters
+  const params = data['parametri'] as Record<string, unknown> | undefined;
+  if (params && Object.keys(params).length > 0) {
+    section('Parametri');
+    for (const [k, v] of Object.entries(params)) {
+      const label = k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      writeText(state, `${label}: ${v ?? '-'}`, 55, state.currentY, 11, f.norm);
+      state.currentY += 16;
+    }
+    state.currentY += 6;
+  }
+
+  // Tables
+  function simpleTable(title: string, header: string[], rows: string[][]): void {
+    section(title);
+    const cols = header.length;
+    const colW = [200, 60, 55, 185].slice(0, cols);
+    let x = 45;
+    for (let c = 0; c < cols; c++) {
+      writeText(state, header[c]!, x, state.currentY, 10, f.bold);
+      x += colW[c]!;
+    }
+    state.currentY += 16;
+    for (const row of rows) {
+      if (state.currentY > 790) emitPage(state);
+      x = 45;
+      for (let c = 0; c < cols; c++) {
+        writeText(state, String(row[c] ?? '-'), x, state.currentY, 10, f.norm);
+        x += colW[c]!;
+      }
+      state.currentY += 14;
+    }
+    state.currentY += 6;
+  }
+
+  // Grist
+  const grist = data['grist'] as Array<Record<string, unknown>> | undefined;
+  if (grist && grist.length > 0) {
+    simpleTable('Grist', ['Malto', 'Kg', '%', 'Note'],
+      grist.map((g) => [String(g['malto'] ?? ''), String(g['kg'] ?? ''), String(g['percent'] ?? ''), String(g['note'] ?? '')]));
+  }
+
+  // Hops
+  const hops = data['luppolatura'] as Array<Record<string, unknown>> | undefined;
+  if (hops && hops.length > 0) {
+    simpleTable('Luppolatura', ['Varietà', 'g', 'Tempo', 'Uso', 'AA%', 'IBU', 'Note'],
+      hops.map((h) => [
+        String(h['varieta'] ?? ''), String(h['grammi'] ?? ''), String(h['tempo_min'] ?? ''),
+        String(h['uso'] ?? ''), String(h['aa_percent'] ?? ''), String(h['ibu_stimati'] ?? ''),
+        String(h['note'] ?? ''),
+      ]));
+  }
+
+  // Key-value sections
+  function kv(sectionName: string, obj: Record<string, unknown> | undefined): void {
+    if (!obj || Object.keys(obj).length === 0) return;
+    section(sectionName);
+    for (const [k, v] of Object.entries(obj)) {
+      const label = k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      writeText(state, `${label}: ${v ?? '-'}`, 55, state.currentY, 11, f.norm);
+      state.currentY += 16;
+    }
+    state.currentY += 4;
+  }
+
+  kv('Lievito', data['lievito'] as Record<string, unknown> | undefined);
+  kv('Acqua', data['acqua'] as Record<string, unknown> | undefined);
+  kv('Mash', data['mash'] as Record<string, unknown> | undefined);
+  kv('Bollitura', data['bollitura'] as Record<string, unknown> | undefined);
+  kv('Fermentazione', data['fermentazione'] as Record<string, unknown> | undefined);
+  kv('Carbonazione', data['carbonazione'] as Record<string, unknown> | undefined);
+
+  // Critical notes
+  const notes = data['note_critiche'];
+  if (notes) {
+    section('Note Critiche');
+    const items: string[] = Array.isArray(notes) ? notes : String(notes).split('\n');
+    for (const n of items) {
+      const trimmed = String(n).trim();
+      if (!trimmed) continue;
+      writeText(state, `• ${trimmed}`, 55, state.currentY, 10, f.norm);
+      state.currentY += 14;
+    }
+    state.currentY += 4;
+  }
+
+  // Alternatives
+  const alts = data['alternative'] as Array<Record<string, unknown>> | undefined;
+  if (alts && alts.length > 0) {
+    section('Alternative');
+    for (const a of alts) {
+      writeText(state, `• ${String(a['descrizione'] ?? '')}`, 55, state.currentY, 10, f.bold);
+      state.currentY += 14;
+      if (a['cambiamenti']) {
+        writeText(state, `  Cambiamenti: ${String(a['cambiamenti'])}`, 60, state.currentY, 10, f.norm);
+        state.currentY += 14;
+      }
+      if (a['impatto']) {
+        writeText(state, `  Impatto: ${String(a['impatto'])}`, 60, state.currentY, 10, f.norm);
+        state.currentY += 14;
+      }
+    }
+  }
+
+  // Footer
+  state.currentY += 10;
+  writeText(state, 'Generato da Maestra Birraia AI — Kimi Code Brewing Assistant', 45, state.currentY, 8, f.italic);
+
+  // Build PDF
+  emitPage(state);
+  const content = finishPdf(state);
+  const pdf = `%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n${FONT_DEFS}\n${content}`;
+  fs.writeFileSync(outputPath, pdf, 'utf-8');
+  return `PDF saved: ${outputPath}`;
+}
+
+// ── Tool ─────────────────────────────────────────────────────────────────────
 
 export class YamlToPdfTool implements BuiltinTool<YamlToPdfInput> {
   readonly name = 'yaml_to_pdf' as const;
   readonly description =
-    'Convert a beer recipe YAML file to a styled PDF document. Handles all recipe fields with a professional layout.';
+    'Convert a beer recipe YAML file to a styled PDF document. Pure Node.js — no external dependencies needed.';
   readonly parameters: Record<string, unknown> = toInputJsonSchema(YamlToPdfInputSchema);
 
   resolveExecution(args: YamlToPdfInput): ToolExecution {
@@ -160,48 +299,16 @@ export class YamlToPdfTool implements BuiltinTool<YamlToPdfInput> {
     return {
       description: `Convert ${inputFile} → PDF`,
       approvalRule: this.name,
-      execute: async () => {
+      execute: () => {
         try {
-          const fs = await import('node:fs');
-          const path = await import('node:path');
-          const os = await import('node:os');
-          const { execSync } = await import('node:child_process');
-
+          const fs = require('node:fs');
           if (!fs.existsSync(inputFile)) {
-            return { isError: true, output: `File not found: ${inputFile}` };
+            return Promise.resolve({ isError: true, output: `File not found: ${inputFile}` });
           }
-
-          const tmpDir = os.tmpdir();
-          const scriptPath = path.join(tmpDir, 'kimi_brewing_yaml_to_pdf.py');
-          fs.writeFileSync(scriptPath, PYTHON_SCRIPT, 'utf-8');
-
-          const venvDir = path.join(tmpDir, '.venv-brewing');
-          const pythonCmd = path.join(venvDir, 'bin', 'python3');
-          const pipCmd = path.join(venvDir, 'bin', 'pip');
-
-          if (!fs.existsSync(venvDir)) {
-            execSync(`python3 -m venv "${venvDir}"`, { stdio: 'pipe' });
-            execSync(`"${pipCmd}" install pyyaml weasyprint`, { stdio: 'pipe' });
-          } else {
-            // Ensure weasyprint is installed in existing venv
-            try {
-              execSync(`"${pythonCmd}" -c "import weasyprint"`, { stdio: 'pipe' });
-            } catch {
-              execSync(`"${pipCmd}" install weasyprint`, { stdio: 'pipe' });
-            }
-          }
-
-          const result = execSync(
-            `"${pythonCmd}" "${scriptPath}" "${inputFile}" "${outputFile}"`,
-            { encoding: 'utf-8', timeout: 60000 },
-          );
-
-          return { output: result.trim() };
+          const result = yamlToPdf(inputFile, outputFile);
+          return Promise.resolve({ output: result });
         } catch (error) {
-          return {
-            isError: true,
-            output: error instanceof Error ? error.message : String(error),
-          };
+          return Promise.resolve({ isError: true, output: error instanceof Error ? error.message : String(error) });
         }
       },
     };
