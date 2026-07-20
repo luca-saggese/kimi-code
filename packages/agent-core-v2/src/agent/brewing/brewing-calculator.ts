@@ -8,7 +8,7 @@
 
 import { z } from 'zod';
 
-import type { BuiltinTool, ToolExecution } from '#/tool/toolContract';
+import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 import { registerTool } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
 
@@ -135,7 +135,7 @@ export class BrewingCalculatorTool implements BuiltinTool<BrewingCalculatorInput
 
   private waterParameters(args: BrewingCalculatorInput): WaterParams {
     return {
-      packagedLiters: this.req(args.batch_size_liters, 'batch_size_liters'),
+      packagedLiters: args.batch_size_liters ?? 0,
       grainKg: this.sumKg(args.grain_bill_kg ?? args.grain_bill),
       mashThickness: args.mash_thickness_l_per_kg ?? 3.0,
       mashDeadspace: args.mash_deadspace_liters ?? 0,
@@ -221,7 +221,8 @@ export class BrewingCalculatorTool implements BuiltinTool<BrewingCalculatorInput
     const grainBill = this.req(args.grain_bill_kg ?? args.grain_bill, 'grain_bill');
     let theoreticalPtL = 0;
     for (const { malt, kg } of grainBill) {
-      const pot = MALT_POTENTIAL[malt.toLowerCase()];
+      const key = malt.toLowerCase();
+      const pot = MALT_POTENTIAL[key] ?? MALT_POTENTIAL[key + ' malt'] ?? this.lookupPotential(key);
       if (pot === undefined) return { isError: true, output: `Potenziale sconosciuto per "${malt}".` };
       theoreticalPtL += kg * pot;
     }
@@ -408,6 +409,17 @@ export class BrewingCalculatorTool implements BuiltinTool<BrewingCalculatorInput
     let t = 0;
     for (const g of bill) t += g.kg;
     return t;
+  }
+
+  /** Fuzzy match a malt name against known potentials. */
+  private lookupPotential(name: string): number | undefined {
+    // Strip common suffixes, try partial matches
+    const n = name.toLowerCase().replace(/ malt$/, '').replace(/^-/, '');
+    for (const [key, val] of Object.entries(MALT_POTENTIAL)) {
+      const k = key.replace(/ malt$/, '');
+      if (k === n || key.includes(n) || n.includes(k)) return val;
+    }
+    return undefined;
   }
 
   private req<T>(v: T | undefined, name: string): T {
