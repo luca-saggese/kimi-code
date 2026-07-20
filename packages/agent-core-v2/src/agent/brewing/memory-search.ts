@@ -13,7 +13,7 @@ import { loadMemories, searchMemories, getMemoriesByCategory, deleteMemory } fro
 export const MemorySearchInputSchema = z.object({
   action: z.enum(['search', 'list', 'by_category', 'delete', 'summary']).describe('Action: search (by query), list (all), by_category, delete, or summary (condensed).'),
   query: z.string().optional().describe('Search query for action=search.'),
-  category: z.string().optional().describe('Category filter for action=by_category.'),
+  category: z.string().optional().describe('Category filter for action=by_category. Valori: equipment, preference, constraint, goal, note, technique, ingredient, water, other, recipe.'),
   key: z.string().optional().describe('Memory key to delete (for action=delete).'),
 });
 

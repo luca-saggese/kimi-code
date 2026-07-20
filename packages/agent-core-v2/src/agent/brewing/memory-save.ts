@@ -12,7 +12,7 @@ import { isMemoryEnabled } from './memory-toggle';
 
 export const MemorySaveInputSchema = z.object({
   key: z.string().describe('Short identifier for this memory (e.g. "brewzilla_efficiency", "preferred_hops").'),
-  category: z.enum(['equipment', 'preference', 'constraint', 'goal', 'note', 'technique', 'ingredient', 'water', 'other']).describe('Memory category.'),
+  category: z.enum(['equipment', 'preference', 'constraint', 'goal', 'note', 'technique', 'ingredient', 'water', 'other', 'recipe', 'brewday']).describe('Categoria della memoria. Valori validi: equipment, preference, constraint, goal, note, technique, ingredient, water, other, recipe, brewday.'),
   content: z.string().describe('The fact or preference to remember, written as a complete sentence.'),
 });
 
