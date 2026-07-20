@@ -57,6 +57,10 @@ export const BrewingCalculatorInputSchema = z.object({
   grain_absorption_l_per_kg: z.number().min(0.3).max(1.5).optional()
     .describe('Grain absorption in L/kg (default 0.8).'),
 
+  sparge_water_volume: z.number().nonnegative().max(200).optional()
+    .describe('User-provided sparge water volume in liters. When given, ' +
+      'it overrides the calculated sparge volume for total_water_volume.'),
+
   boil_duration_minutes: z.number().min(0).max(300).optional(),
   boil_off_rate_l_per_h: z.number().min(0).max(20).optional(),
 
@@ -98,7 +102,8 @@ interface WaterParams {
 export class BrewingCalculatorTool implements BuiltinTool<BrewingCalculatorInput> {
   readonly name = 'brewing_calculator' as const;
   readonly description =
-    'Calculate brewing parameters: ABV, attenuation, efficiency, strike water, mash/sparge/total water, pre/post-boil volumes, pitching rates, gravity corrections, dilution, and boil-off.';
+    'Calculate brewing parameters: ABV, attenuation, efficiency, strike water, mash/sparge/total water, pre/post-boil volumes, pitching rates, gravity corrections, dilution, and boil-off. ' +
+    'For total_water_volume you can optionally pass sparge_water_volume (in liters) to override the calculated sparge volume.';
   readonly parameters: Record<string, unknown> = toInputJsonSchema(BrewingCalculatorInputSchema);
 
   resolveExecution(args: BrewingCalculatorInput): ToolExecution {
@@ -188,6 +193,9 @@ export class BrewingCalculatorTool implements BuiltinTool<BrewingCalculatorInput
   }
 
   private spargeWaterL(args: BrewingCalculatorInput): number {
+    if (args.sparge_water_volume !== undefined) {
+      return args.sparge_water_volume;
+    }
     return Math.max(0, this.preBoilL(args) - this.firstRunningsL(args));
   }
 
@@ -274,6 +282,18 @@ export class BrewingCalculatorTool implements BuiltinTool<BrewingCalculatorInput
     const fr = this.firstRunningsL(args);
     const sparge = this.spargeWaterL(args);
     const preBoil = this.preBoilL(args);
+
+    if (args.sparge_water_volume !== undefined) {
+      return {
+        output: [
+          `Acqua di sparge = **${sparge.toFixed(1)} L** (fornita dall'utente)`,
+          `  Acqua di mash: ${mw.toFixed(1)} L`,
+          `  Primi mosti: ${fr.toFixed(1)} L`,
+          `  Pre-boil risultante: ${(mw + sparge - p.grainKg * p.grainAbsorption - p.mashLoss).toFixed(1)} L`,
+        ].join('\n'),
+      };
+    }
+
     return {
       output: [
         `Acqua di sparge = **${sparge.toFixed(1)} L**`,
@@ -293,6 +313,18 @@ export class BrewingCalculatorTool implements BuiltinTool<BrewingCalculatorInput
     const sparge = this.spargeWaterL(args);
     const preBoil = this.preBoilL(args);
     const absorbed = p.grainKg * p.grainAbsorption;
+
+    if (args.sparge_water_volume !== undefined) {
+      return {
+        output: [
+          `Acqua di mash: ${mash.toFixed(1)} L`,
+          `Acqua di sparge: ${sparge.toFixed(1)} L (fornita dall'utente)`,
+          `Acqua totale di processo: **${(mash + sparge).toFixed(1)} L**`,
+          `  (Pre-boil calcolato: ${preBoil.toFixed(1)} L + assorbimento: ${absorbed.toFixed(1)} L)`,
+        ].join('\n'),
+      };
+    }
+
     return {
       output: [
         `Acqua di mash: ${mash.toFixed(1)} L`,

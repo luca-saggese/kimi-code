@@ -40,9 +40,10 @@ export const WaterProfileCalculatorInputSchema = z.object({
     'robust_porter', 'imperial_stout_ris', 'flanders_red', 'flanders_brown',
     'oud_bruin', 'lambic_gueuze', 'lambic_kriek', 'lambic_framboise',
   ]),
-  batch_size_liters: z.number(),
-  mash_water_liters: z.number().optional(),
-  sparge_water_liters: z.number().optional(),
+  batch_size_liters: z.number().optional()
+    .describe('IGNORATO — usa mash_water_liters e/o sparge_water_liters. Questo campo è conservato per compatibilità ma non viene usato nei calcoli.'),
+  mash_water_liters: z.number().positive().describe('Volume acqua di ammostamento in litri. OBBLIGATORIO (direttamente o in combinazione con sparge_water_liters).'),
+  sparge_water_liters: z.number().nonnegative().describe('Volume acqua di sparge in litri. Opzionale; se omesso il calcolo usa solo mash_water_liters.'),
   target_ph: z.number().optional(),
 });
 
@@ -144,7 +145,8 @@ const WATER: Record<string, WaterTarget> = {
 export class WaterProfileCalculatorTool implements BuiltinTool<WaterProfileCalculatorInput> {
   readonly name = 'water_profile_calculator' as const;
   readonly description =
-    'Calculate water mineral additions (gypsum, CaCl2, Epsom, baking soda, lactic acid) to hit a target water profile for any beer style. Uses a multi-variable solver that accounts for cross-ion contributions.';
+    'Calculate water mineral additions (gypsum, CaCl2, Epsom, baking soda, lactic acid) to hit a target water profile for any beer style. Uses a multi-variable solver that accounts for cross-ion contributions. ' +
+    'REQUIRED: pass mash_water_liters and/or sparge_water_liters (water volumes, NOT batch_size_liters). batch_size_liters is ignored.';
   readonly parameters: Record<string, unknown> = toInputJsonSchema(WaterProfileCalculatorInputSchema);
 
   resolveExecution(args: WaterProfileCalculatorInput): ToolExecution {
