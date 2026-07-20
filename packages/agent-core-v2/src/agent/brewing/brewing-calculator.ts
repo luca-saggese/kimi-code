@@ -1,8 +1,9 @@
 /**
- * `brewing` domain — general brewing calculator tool.
+ * Brewing calculator — complete brewing math engine.
  *
- * Covers ABV, attenuation, efficiency, strike water, volumes, pitching rates,
- * gravity corrections, and dilution calculations.
+ * Single coherent volume chain (packaged → fermenter → cold post-boil →
+ * hot post-boil → pre-boil → mash/sparge) plus ABV, attenuation, efficiency,
+ * strike water, pitching rate, gravity correction, dilution, and boil-off.
  */
 
 import { z } from 'zod';
@@ -11,71 +12,93 @@ import type { BuiltinTool, ToolExecution } from '#/tool/toolContract';
 import { registerTool } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
 
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const MALT_POTENTIAL: Record<string, number> = {
+  'pilsner malt': 307, 'maris otter': 300, 'pale ale malt': 307,
+  'munich malt': 290, 'vienna malt': 300, 'wheat malt': 315,
+  'crystal malt 60l': 270, 'crystal malt 120l': 260,
+  'chocolate malt': 230, 'black patent': 220, 'roasted barley': 210,
+  'flaked oats': 275, 'flaked wheat': 300, 'flaked barley': 285,
+  'corn (flaked)': 320, 'rice (flaked)': 320,
+};
+
+const DEFAULT_RATES: Record<string, number> = { ale: 0.75, hybrid: 1.0, lager: 1.5 };
+const SUCROSE_YIELD = 384;
+
+// ─── Schema ──────────────────────────────────────────────────────────────────
+
 export const BrewingCalculatorInputSchema = z.object({
-  calculation: z
-    .enum([
-      'abv',
-      'attenuation',
-      'efficiency',
-      'strike_water',
-      'mash_water_volume',
-      'sparge_water_volume',
-      'pre_boil_volume',
-      'post_boil_volume',
-      'pitching_rate',
-      'gravity_correction',
-      'dilution',
-      'boil_off',
-    ])
-    .describe('The type of calculation to perform.'),
-  og: z.number().optional().describe('Original Gravity (e.g. 1.050).'),
-  fg: z.number().optional().describe('Final Gravity (e.g. 1.010).'),
-  batch_size_liters: z.number().optional().describe('Batch size in liters.'),
-  grain_bill_kg: z
-    .array(z.object({ malt: z.string(), kg: z.number() }))
-    .optional()
-    .describe('Grain bill: list of malts with kg used.'),
-  measured_gravity: z.number().optional().describe('Measured pre-boil or OG gravity.'),
-  mash_temp_c: z.number().optional().describe('Target mash temperature in °C.'),
-  grain_temp_c: z.number().optional().describe('Grain temperature in °C.'),
-  mash_thickness_l_per_kg: z.number().optional().describe('Mash thickness in L/kg (default 3.0).'),
-  boil_duration_minutes: z.number().optional().describe('Boil duration in minutes.'),
-  boil_off_rate_l_per_h: z.number().optional().describe('Boil-off rate in L/h (default 3.0).'),
-  trub_loss_liters: z.number().optional().describe('Trub loss in liters (default 1.5).'),
-  fermenter_loss_liters: z.number().optional().describe('Fermenter loss in liters (default 0.5).'),
-  beer_type: z.enum(['ale', 'lager', 'hybrid']).optional().describe('Beer type for pitching rate.'),
-  cells_per_ml_p_required: z.number().optional().describe('Cells per ml per °P.'),
-  yeast_viability_percent: z.number().optional().describe('Yeast viability percentage.'),
-  volume_liters: z.number().optional().describe('Volume to dilute in liters.'),
-  current_gravity: z.number().optional().describe('Current gravity.'),
-  target_gravity: z.number().optional().describe('Target gravity.'),
+  calculation: z.enum([
+    'abv', 'attenuation', 'efficiency',
+    'strike_water', 'mash_water_volume', 'sparge_water_volume', 'total_water_volume',
+    'pre_boil_volume', 'post_boil_volume',
+    'pitching_rate', 'gravity_correction', 'dilution', 'boil_off',
+  ]),
+
+  og: z.number().min(0.990).max(1.300).optional(),
+  fg: z.number().min(0.990).max(1.200).optional(),
+
+  batch_size_liters: z.number().positive().max(200).optional()
+    .describe('Target packaged beer volume in liters.'),
+
+  grain_bill_kg: z.array(z.object({ malt: z.string().min(1), kg: z.number().positive() })).optional(),
+  grain_bill: z.array(z.object({ malt: z.string().min(1), kg: z.number().positive() })).optional(),
+
+  measured_gravity: z.number().min(0.990).max(1.300).optional(),
+
+  mash_temp_c: z.number().min(35).max(80).optional(),
+  grain_temp_c: z.number().min(-10).max(45).optional(),
+  mash_thickness_l_per_kg: z.number().min(1.5).max(10).optional(),
+  mash_deadspace_liters: z.number().min(0).max(30).optional()
+    .describe('Volume under the basket/false bottom in liters (default 0).'),
+  mash_loss_liters: z.number().min(0).max(20).optional()
+    .describe('Non-recoverable mash loss in liters (default 0).'),
+  grain_absorption_l_per_kg: z.number().min(0.3).max(1.5).optional()
+    .describe('Grain absorption in L/kg (default 0.8).'),
+
+  boil_duration_minutes: z.number().min(0).max(300).optional(),
+  boil_off_rate_l_per_h: z.number().min(0).max(20).optional(),
+
+  trub_loss_liters: z.number().min(0).max(30).optional()
+    .describe('Trub/kettle loss in liters (default 1.5).'),
+  fermenter_loss_liters: z.number().min(0).max(30).optional()
+    .describe('Fermenter-to-package loss in liters (default 0.5).'),
+  wort_shrinkage_percent: z.number().min(0).max(10).optional()
+    .describe('Wort shrinkage from hot to cold (default 4%).'),
+
+  beer_type: z.enum(['ale', 'lager', 'hybrid']).optional(),
+  cells_per_ml_p_required: z.number().min(0.1).max(5).optional(),
+  yeast_viability_percent: z.number().gt(0).max(100).optional(),
+  volume_liters: z.number().optional(),
+  current_gravity: z.number().optional(),
+  target_gravity: z.number().optional(),
 });
 
 export type BrewingCalculatorInput = z.infer<typeof BrewingCalculatorInputSchema>;
 
-const GRAVITY_POINTS_PER_KG_L: Record<string, number> = {
-  'pilsner malt': 0.030,
-  'maris otter': 0.029,
-  'pale ale malt': 0.030,
-  'munich malt': 0.028,
-  'vienna malt': 0.029,
-  'wheat malt': 0.030,
-  'crystal malt 60l': 0.026,
-  'crystal malt 120l': 0.025,
-  'chocolate malt': 0.022,
-  'black patent': 0.021,
-  'roasted barley': 0.020,
-  'flaked oats': 0.028,
-  'flaked wheat': 0.029,
-  'flaked barley': 0.028,
-  'corn (flaked)': 0.030,
-  'rice (flaked)': 0.030,
-};
+// ─── Water/volume parameters (single source of defaults) ─────────────────────
+
+interface WaterParams {
+  packagedLiters: number;
+  grainKg: number;
+  mashThickness: number;
+  mashDeadspace: number;
+  mashLoss: number;
+  grainAbsorption: number;
+  boilMinutes: number;
+  boilOffRate: number;
+  trubLoss: number;
+  fermenterLoss: number;
+  shrinkageFraction: number;
+}
+
+// ─── Tool implementation ─────────────────────────────────────────────────────
 
 export class BrewingCalculatorTool implements BuiltinTool<BrewingCalculatorInput> {
   readonly name = 'brewing_calculator' as const;
   readonly description =
-    'Calculate brewing parameters: ABV, attenuation, efficiency, strike water, volumes, pitching rates, gravity corrections, and dilution.';
+    'Calculate brewing parameters: ABV, attenuation, efficiency, strike water, mash/sparge/total water, pre/post-boil volumes, pitching rates, gravity corrections, dilution, and boil-off.';
   readonly parameters: Record<string, unknown> = toInputJsonSchema(BrewingCalculatorInputSchema);
 
   resolveExecution(args: BrewingCalculatorInput): ToolExecution {
@@ -95,6 +118,7 @@ export class BrewingCalculatorTool implements BuiltinTool<BrewingCalculatorInput
         case 'strike_water': return Promise.resolve(this.calcStrikeWater(args));
         case 'mash_water_volume': return Promise.resolve(this.calcMashWaterVolume(args));
         case 'sparge_water_volume': return Promise.resolve(this.calcSpargeWaterVolume(args));
+        case 'total_water_volume': return Promise.resolve(this.calcTotalWaterVolume(args));
         case 'pre_boil_volume': return Promise.resolve(this.calcPreBoilVolume(args));
         case 'post_boil_volume': return Promise.resolve(this.calcPostBoilVolume(args));
         case 'pitching_rate': return Promise.resolve(this.calcPitchingRate(args));
@@ -107,100 +131,250 @@ export class BrewingCalculatorTool implements BuiltinTool<BrewingCalculatorInput
     }
   }
 
+  // ─── Water parameters ─────────────────────────────────────────────────────
+
+  private waterParameters(args: BrewingCalculatorInput): WaterParams {
+    return {
+      packagedLiters: this.req(args.batch_size_liters, 'batch_size_liters'),
+      grainKg: this.sumKg(args.grain_bill_kg ?? args.grain_bill),
+      mashThickness: args.mash_thickness_l_per_kg ?? 3.0,
+      mashDeadspace: args.mash_deadspace_liters ?? 0,
+      mashLoss: args.mash_loss_liters ?? 0,
+      grainAbsorption: args.grain_absorption_l_per_kg ?? 0.8,
+      boilMinutes: args.boil_duration_minutes ?? 60,
+      boilOffRate: args.boil_off_rate_l_per_h ?? 3.0,
+      trubLoss: args.trub_loss_liters ?? 1.5,
+      fermenterLoss: args.fermenter_loss_liters ?? 0.5,
+      shrinkageFraction: (args.wort_shrinkage_percent ?? 4) / 100,
+    };
+  }
+
+  // ─── Volume helpers (single coherent chain) ───────────────────────────────
+
+  private boilOffL(args: BrewingCalculatorInput): number {
+    const p = this.waterParameters(args);
+    return p.boilOffRate * p.boilMinutes / 60;
+  }
+
+  private fermenterTargetL(args: BrewingCalculatorInput): number {
+    const p = this.waterParameters(args);
+    return p.packagedLiters + p.fermenterLoss;
+  }
+
+  private coldPostBoilL(args: BrewingCalculatorInput): number {
+    const p = this.waterParameters(args);
+    return this.fermenterTargetL(args) + p.trubLoss;
+  }
+
+  private hotPostBoilL(args: BrewingCalculatorInput): number {
+    const p = this.waterParameters(args);
+    return this.coldPostBoilL(args) / (1 - p.shrinkageFraction);
+  }
+
+  private preBoilL(args: BrewingCalculatorInput): number {
+    return this.hotPostBoilL(args) + this.boilOffL(args);
+  }
+
+  private mashWaterL(args: BrewingCalculatorInput): number {
+    const p = this.waterParameters(args);
+    if (p.grainKg <= 0) return 0;
+    return p.grainKg * p.mashThickness + p.mashDeadspace;
+  }
+
+  private firstRunningsL(args: BrewingCalculatorInput): number {
+    const p = this.waterParameters(args);
+    const mw = this.mashWaterL(args);
+    return Math.max(0, mw - p.grainKg * p.grainAbsorption - p.mashLoss);
+  }
+
+  private spargeWaterL(args: BrewingCalculatorInput): number {
+    return Math.max(0, this.preBoilL(args) - this.firstRunningsL(args));
+  }
+
+  private totalWaterL(args: BrewingCalculatorInput): number {
+    return this.mashWaterL(args) + this.spargeWaterL(args);
+  }
+
+  // ─── ABV ──────────────────────────────────────────────────────────────────
+
   private calcAbv(args: BrewingCalculatorInput): ExecutableToolResult {
     const og = this.req(args.og, 'og');
     const fg = this.req(args.fg, 'fg');
     if (og <= fg) return { isError: true, output: 'OG must be greater than FG.' };
-    const abv = (og - fg) * 131.25;
-    return { output: `ABV = (OG ${og.toFixed(3)} − FG ${fg.toFixed(3)}) × 131.25 = **${abv.toFixed(2)}% vol**` };
+    return { output: `ABV = (OG ${og.toFixed(3)} − FG ${fg.toFixed(3)}) × 131.25 = **${((og - fg) * 131.25).toFixed(2)}% vol**` };
   }
+
+  // ─── Attenuation ──────────────────────────────────────────────────────────
 
   private calcAttenuation(args: BrewingCalculatorInput): ExecutableToolResult {
     const og = this.req(args.og, 'og');
     const fg = this.req(args.fg, 'fg');
     if (og <= fg) return { isError: true, output: 'OG must be greater than FG.' };
-    const apparent = ((og - fg) / (og - 1.0)) * 100;
-    let note = '';
-    if (apparent > 85) note = 'Attenuazione molto alta — possibile infezione o lievito molto attenuativo.';
-    else if (apparent > 75) note = 'Attenuazione tipica di un lievito ale ben gestito.';
-    else if (apparent > 65) note = 'Attenuazione moderata — controlla temperatura e pitching rate.';
-    else note = 'Attenuazione bassa — possibile problema di lievito, ossigenazione o temperatura.';
-    return { output: `Attenuazione apparente = **${apparent.toFixed(1)}%** — ${note}` };
+    return { output: `Attenuazione apparente = **${(((og - fg) / (og - 1.0)) * 100).toFixed(1)}%**` };
   }
+
+  // ─── Efficiency ───────────────────────────────────────────────────────────
 
   private calcEfficiency(args: BrewingCalculatorInput): ExecutableToolResult {
     const batchLiters = this.req(args.batch_size_liters, 'batch_size_liters');
     const measuredGrav = this.req(args.measured_gravity, 'measured_gravity');
-    const grainBill = this.req(args.grain_bill_kg, 'grain_bill_kg');
-    let theoreticalOgPoints = 0;
+    const grainBill = this.req(args.grain_bill_kg ?? args.grain_bill, 'grain_bill');
+    let theoreticalPtL = 0;
     for (const { malt, kg } of grainBill) {
-      const p = GRAVITY_POINTS_PER_KG_L[malt.toLowerCase()];
-      if (p === undefined) return { isError: true, output: `Unknown malt: "${malt}".` };
-      theoreticalOgPoints += kg * p * 1000;
+      const pot = MALT_POTENTIAL[malt.toLowerCase()];
+      if (pot === undefined) return { isError: true, output: `Potenziale sconosciuto per "${malt}".` };
+      theoreticalPtL += kg * pot;
     }
-    const theoreticalOg = 1 + theoreticalOgPoints / batchLiters;
-    const efficiency = ((measuredGrav - 1) / (theoreticalOg - 1)) * 100;
-    return { output: `OG teorica = ${theoreticalOg.toFixed(3)} — Efficienza = **${efficiency.toFixed(1)}%**` };
+    const measuredPtL = (measuredGrav - 1) * 1000 * batchLiters;
+    const efficiency = (measuredPtL / theoreticalPtL) * 100;
+    return {
+      output: [
+        `Efficienza = **${efficiency.toFixed(1)}%**`,
+        `  Punti teorici: ${theoreticalPtL.toFixed(0)} punti·L`,
+        `  Punti misurati: ${measuredPtL.toFixed(0)} punti·L`,
+      ].join('\n'),
+    };
   }
+
+  // ─── Strike Water ─────────────────────────────────────────────────────────
 
   private calcStrikeWater(args: BrewingCalculatorInput): ExecutableToolResult {
     const mashTemp = this.req(args.mash_temp_c, 'mash_temp_c');
     const grainTemp = this.req(args.grain_temp_c, 'grain_temp_c');
     const thickness = args.mash_thickness_l_per_kg ?? 3.0;
-    const grainKg = this.sumKg(args.grain_bill_kg);
-    if (grainKg <= 0) return { isError: true, output: 'grain_bill_kg required.' };
-    const strikeTemp = (0.41 / thickness) * (mashTemp - grainTemp) + mashTemp;
-    return { output: `Temperatura strike water = **${strikeTemp.toFixed(1)}°C** (grainKg: ${grainKg.toFixed(2)} kg, thickness: ${thickness} L/kg)` };
+    const strikeTemp = mashTemp + (0.41 / thickness) * (mashTemp - grainTemp);
+    return {
+      output: `Temperatura strike water = **${strikeTemp.toFixed(1)}°C** (${thickness} L/kg, mash target ${mashTemp}°C, grani ${grainTemp}°C)`,
+    };
   }
+
+  // ─── Mash Water Volume ────────────────────────────────────────────────────
 
   private calcMashWaterVolume(args: BrewingCalculatorInput): ExecutableToolResult {
-    const grainKg = this.sumKg(args.grain_bill_kg);
-    if (grainKg <= 0) return { isError: true, output: 'grain_bill_kg required.' };
-    const thickness = args.mash_thickness_l_per_kg ?? 3.0;
-    return { output: `Volume acqua di mash = **${(grainKg * thickness).toFixed(1)} L** (${thickness} L/kg)` };
+    const p = this.waterParameters(args);
+    if (p.grainKg <= 0) return { isError: true, output: 'grain_bill required.' };
+    const grainWater = p.grainKg * p.mashThickness;
+    const totalMash = grainWater + p.mashDeadspace;
+    return {
+      output: [
+        `Acqua nel letto di trebbie: **${grainWater.toFixed(1)} L** (${p.mashThickness} L/kg × ${p.grainKg.toFixed(2)} kg)`,
+        p.mashDeadspace > 0 ? `Spazio sotto cestello: +${p.mashDeadspace.toFixed(1)} L` : '',
+        `Acqua totale da caricare per il mash: **${totalMash.toFixed(1)} L**`,
+      ].filter(Boolean).join('\n'),
+    };
   }
+
+  // ─── Sparge Water Volume ──────────────────────────────────────────────────
 
   private calcSpargeWaterVolume(args: BrewingCalculatorInput): ExecutableToolResult {
-    const batchLiters = this.req(args.batch_size_liters, 'batch_size_liters');
-    const preBoil = this.preBoilLitri(args);
-    const grainKg = this.sumKg(args.grain_bill_kg);
-    const thickness = args.mash_thickness_l_per_kg ?? 3.0;
-    const sparge = preBoil - (grainKg * thickness - grainKg * 0.8);
-    return { output: `Volume acqua di sparge = **${Math.max(0, sparge).toFixed(1)} L**` };
+    const p = this.waterParameters(args);
+    if (p.grainKg <= 0) return { isError: true, output: 'grain_bill required.' };
+    const mw = this.mashWaterL(args);
+    const fr = this.firstRunningsL(args);
+    const sparge = this.spargeWaterL(args);
+    const preBoil = this.preBoilL(args);
+    return {
+      output: [
+        `Acqua di sparge = **${sparge.toFixed(1)} L**`,
+        `  Acqua di mash: ${mw.toFixed(1)} L`,
+        `  Assorbimento grani: ${(p.grainKg * p.grainAbsorption).toFixed(1)} L (${p.grainAbsorption} L/kg)`,
+        `  Primi mosti: ${fr.toFixed(1)} L`,
+        `  Pre-boil richiesto: ${preBoil.toFixed(1)} L`,
+      ].join('\n'),
+    };
   }
+
+  // ─── Total Water Volume ───────────────────────────────────────────────────
+
+  private calcTotalWaterVolume(args: BrewingCalculatorInput): ExecutableToolResult {
+    const p = this.waterParameters(args);
+    const mash = this.mashWaterL(args);
+    const sparge = this.spargeWaterL(args);
+    const preBoil = this.preBoilL(args);
+    const absorbed = p.grainKg * p.grainAbsorption;
+    return {
+      output: [
+        `Acqua di mash: ${mash.toFixed(1)} L`,
+        `Acqua di sparge: ${sparge.toFixed(1)} L`,
+        `Acqua totale di processo: **${(mash + sparge).toFixed(1)} L**`,
+        `  (Pre-boil: ${preBoil.toFixed(1)} L + assorbimento: ${absorbed.toFixed(1)} L)`,
+      ].join('\n'),
+    };
+  }
+
+  // ─── Pre-boil Volume ──────────────────────────────────────────────────────
 
   private calcPreBoilVolume(args: BrewingCalculatorInput): ExecutableToolResult {
-    const preBoil = this.preBoilLitri(args);
-    return { output: `Volume pre-boil = **${preBoil.toFixed(1)} L**` };
+    const p = this.waterParameters(args);
+    const hot = this.hotPostBoilL(args);
+    const boilOff = this.boilOffL(args);
+    const preBoil = this.preBoilL(args);
+    return {
+      output: [
+        `Post-boil caldo: ${hot.toFixed(1)} L`,
+        `Evaporazione: ${boilOff.toFixed(1)} L (${p.boilOffRate} L/h × ${p.boilMinutes} min)`,
+        `Volume pre-boil: **${preBoil.toFixed(1)} L**`,
+      ].join('\n'),
+    };
   }
 
+  // ─── Post-boil Volume ─────────────────────────────────────────────────────
+
   private calcPostBoilVolume(args: BrewingCalculatorInput): ExecutableToolResult {
-    const batchLiters = this.req(args.batch_size_liters, 'batch_size_liters');
-    const trub = args.trub_loss_liters ?? 1.5;
-    const ferm = args.fermenter_loss_liters ?? 0.5;
-    return { output: `Volume post-boil target = **${(batchLiters + trub + ferm).toFixed(1)} L**` };
+    const p = this.waterParameters(args);
+    const ferm = this.fermenterTargetL(args);
+    const cold = this.coldPostBoilL(args);
+    const hot = this.hotPostBoilL(args);
+    return {
+      output: [
+        `Volume confezionato target: ${p.packagedLiters.toFixed(1)} L`,
+        `Richiesto nel fermentatore: ${ferm.toFixed(1)} L (+${p.fermenterLoss} L)`,
+        `Post-boil freddo nel kettle: ${cold.toFixed(1)} L (+${p.trubLoss} L)`,
+        `Post-boil caldo: **${hot.toFixed(1)} L** (contrazione ${(p.shrinkageFraction * 100).toFixed(1)}%)`,
+      ].join('\n'),
+    };
   }
+
+  // ─── Pitching Rate ────────────────────────────────────────────────────────
 
   private calcPitchingRate(args: BrewingCalculatorInput): ExecutableToolResult {
     const batchLiters = this.req(args.batch_size_liters, 'batch_size_liters');
     const og = this.req(args.og, 'og');
     const beerType = args.beer_type ?? 'ale';
-    const cells = args.cells_per_ml_p_required ?? (beerType === 'lager' ? 1.5 : 0.75);
+    const cells = args.cells_per_ml_p_required ?? DEFAULT_RATES[beerType] ?? 0.75;
     const plato = this.toPlato(og);
     const viability = args.yeast_viability_percent ?? 95;
-    const total = batchLiters * 1000 * plato * cells;
-    const viable = total / (viability / 100);
-    return { output: `Pitching rate (${beerType}): **${(viable / 1e9).toFixed(1)} miliardi** di cellule vitali (${plato.toFixed(1)}°P, viabilità ${viability}%)` };
+    const requiredBillions = batchLiters * plato * cells;
+    const pitchBillions = requiredBillions / (viability / 100);
+    return {
+      output: [
+        `Pitching rate: ${cells.toFixed(2)} M cellule/mL/°P (${beerType})`,
+        `Mosto: ${batchLiters.toFixed(1)} L a ${plato.toFixed(1)}°P`,
+        `Cellule vitali: **${requiredBillions.toFixed(0)} miliardi**`,
+        `Cella nominali viabilità ${viability}%: **${pitchBillions.toFixed(0)} miliardi**`,
+      ].join('\n'),
+    };
   }
 
+  // ─── Gravity Correction (OG adjustment with sugar) ────────────────────────
+
   private calcGravityCorrection(args: BrewingCalculatorInput): ExecutableToolResult {
-    const og = this.req(args.og, 'og');
-    const fg = this.req(args.fg, 'fg');
-    const batchLiters = this.req(args.batch_size_liters, 'batch_size_liters');
-    const targetFg = 1.010;
-    const diff = ((og - targetFg) - (og - fg)) * 131.25;
-    return { output: `Correzione: aggiungi **${(diff * batchLiters * 1000 / 131.25).toFixed(0)} g** di zucchero per raggiungere ABV target.` };
+    const current = this.req(args.current_gravity, 'current_gravity');
+    const target = this.req(args.target_gravity, 'target_gravity');
+    const volume = this.req(args.volume_liters, 'volume_liters');
+    if (target <= current) return { isError: true, output: 'Target gravity must be > current gravity.' };
+    const missingPtL = ((target - current) * 1000) * volume;
+    const sugarGrams = (missingPtL / SUCROSE_YIELD) * 1000;
+    return {
+      output: [
+        `Correzione OG: aggiungi **${sugarGrams.toFixed(0)} g** di saccarosio`,
+        `  Da ${current.toFixed(3)} a ${target.toFixed(3)} — ${volume.toFixed(1)} L`,
+        `  Punti mancanti: ${missingPtL.toFixed(0)} punti·L`,
+      ].join('\n'),
+    };
   }
+
+  // ─── Dilution ─────────────────────────────────────────────────────────────
 
   private calcDilution(args: BrewingCalculatorInput): ExecutableToolResult {
     const volume = this.req(args.volume_liters, 'volume_liters');
@@ -208,26 +382,28 @@ export class BrewingCalculatorTool implements BuiltinTool<BrewingCalculatorInput
     const target = this.req(args.target_gravity, 'target_gravity');
     if (curr <= target) return { isError: true, output: 'Current gravity must be > target.' };
     const dilution = volume * ((curr - 1) / (target - 1) - 1);
-    return { output: `Aggiungi **${dilution.toFixed(1)} L** di acqua per diluire da ${curr.toFixed(3)} a ${target.toFixed(3)}.` };
+    return { output: `Aggiungi **${dilution.toFixed(1)} L** di acqua per diluire da ${curr.toFixed(3)} a ${target.toFixed(3)} (volume finale: ${(volume + dilution).toFixed(1)} L)` };
   }
+
+  // ─── Boil Off ─────────────────────────────────────────────────────────────
 
   private calcBoilOff(args: BrewingCalculatorInput): ExecutableToolResult {
-    const batchLiters = this.req(args.batch_size_liters, 'batch_size_liters');
-    const duration = args.boil_duration_minutes ?? 60;
-    const rate = args.boil_off_rate_l_per_h ?? 3.0;
-    const preBoil = this.preBoilLitri(args);
-    const evaporated = (rate * duration) / 60;
-    return { output: `Evaporazione: **${evaporated.toFixed(1)} L** (${((evaporated / preBoil) * 100).toFixed(1)}%) a ${rate} L/h per ${duration} min` };
+    const p = this.waterParameters(args);
+    const evaporated = this.boilOffL(args);
+    const preBoil = this.preBoilL(args);
+    const percent = preBoil > 0 ? evaporated / preBoil * 100 : 0;
+    return {
+      output: [
+        `Evaporazione: **${evaporated.toFixed(1)} L** (${percent.toFixed(1)}%)`,
+        `  Tasso: ${p.boilOffRate} L/h, durata: ${p.boilMinutes} min`,
+        `  Pre-boil: ${preBoil.toFixed(1)} L → post-boil caldo: ${(preBoil - evaporated).toFixed(1)} L`,
+      ].join('\n'),
+    };
   }
 
-  private preBoilLitri(args: BrewingCalculatorInput): number {
-    const batch = this.req(args.batch_size_liters, 'batch_size_liters');
-    const dur = args.boil_duration_minutes ?? 60;
-    const rate = args.boil_off_rate_l_per_h ?? 3.0;
-    return batch + (rate * dur) / 60;
-  }
+  // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  private sumKg(bill: BrewingCalculatorInput['grain_bill_kg']): number {
+  private sumKg(bill: BrewingCalculatorInput['grain_bill_kg'] | BrewingCalculatorInput['grain_bill']): number {
     if (!bill) return 0;
     let t = 0;
     for (const g of bill) t += g.kg;
