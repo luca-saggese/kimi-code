@@ -231,6 +231,8 @@ import '#/agent/brewing/ibu-calculator';
 import '#/agent/brewing/priming-calculator';
 import '#/agent/brewing/recipe-validator';
 import '#/agent/brewing/inventory-search';
+import '#/agent/brewing/yaml-to-docx';
+import '#/agent/brewing/yaml-to-pdf';
 export * from '#/session/agentLifecycle/agentLifecycle';
 export * from '#/session/agentLifecycle/agentLifecycleService';
 export * from '#/session/agentLifecycle/mainAgent';
