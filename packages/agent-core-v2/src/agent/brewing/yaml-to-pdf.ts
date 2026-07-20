@@ -5,6 +5,8 @@
  */
 
 import { z } from 'zod';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import * as yaml from 'js-yaml';
 
 import type { BuiltinTool, ToolExecution } from '#/tool/toolContract';
 import { registerTool } from '#/agent/toolRegistry/toolContribution';
@@ -134,10 +136,9 @@ function escapeHtml(text: string): string {
 }
 
 function yamlToPdf(inputPath: string, outputPath: string): string {
-  const fs = require('node:fs');
-  const yaml = require('js-yaml');
+  // fs and yaml are imported at module level
 
-  const raw = fs.readFileSync(inputPath, 'utf-8');
+  const raw = readFileSync(inputPath, 'utf-8');
   const data: Record<string, unknown> = yaml.load(raw);
 
   const state = createPdfWriter(45);
@@ -280,7 +281,7 @@ function yamlToPdf(inputPath: string, outputPath: string): string {
   emitPage(state);
   const content = finishPdf(state);
   const pdf = `%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n${FONT_DEFS}\n${content}`;
-  fs.writeFileSync(outputPath, pdf, 'utf-8');
+  writeFileSync(outputPath, pdf, 'utf-8');
   return `PDF saved: ${outputPath}`;
 }
 
@@ -301,8 +302,7 @@ export class YamlToPdfTool implements BuiltinTool<YamlToPdfInput> {
       approvalRule: this.name,
       execute: () => {
         try {
-          const fs = require('node:fs');
-          if (!fs.existsSync(inputFile)) {
+          if (!existsSync(inputFile)) {
             return Promise.resolve({ isError: true, output: `File not found: ${inputFile}` });
           }
           const result = yamlToPdf(inputFile, outputFile);

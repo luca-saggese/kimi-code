@@ -4,6 +4,8 @@
  */
 
 import { z } from 'zod';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import * as yaml from 'js-yaml';
 
 import type { BuiltinTool, ToolExecution } from '#/tool/toolContract';
 import { registerTool } from '#/agent/toolRegistry/toolContribution';
@@ -26,11 +28,7 @@ function escapeXml(text: string): string {
 }
 
 function yamlToDocx(inputPath: string, outputPath: string): string {
-  const JSZip = require('../../_base/utils/jszip.js'); // We'll write a tiny zip helper
-  const fs = require('node:fs');
-  const yaml = require('js-yaml');
-
-  const raw = fs.readFileSync(inputPath, 'utf-8');
+  const raw = readFileSync(inputPath, 'utf-8');
   const data: Record<string, unknown> = yaml.load(raw);
 
   // Build document.xml
@@ -258,7 +256,7 @@ function yamlToDocx(inputPath: string, outputPath: string): string {
     { name: 'word/document.xml', data: Buffer.from(documentXml, 'utf-8') },
   ]);
 
-  fs.writeFileSync(outputPath, zip);
+  writeFileSync(outputPath, zip);
   return `DOCX saved: ${outputPath}`;
 }
 
@@ -279,8 +277,7 @@ export class YamlToDocxTool implements BuiltinTool<YamlToDocxInput> {
       approvalRule: this.name,
       execute: () => {
         try {
-          const fs = require('node:fs');
-          if (!fs.existsSync(inputFile)) {
+          if (!existsSync(inputFile)) {
             return Promise.resolve({ isError: true, output: `File not found: ${inputFile}` });
           }
           const result = yamlToDocx(inputFile, outputFile);
