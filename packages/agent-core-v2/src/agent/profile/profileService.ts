@@ -29,6 +29,7 @@ import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/app/llmProtocol/capa
 import { type GenerationKwargs } from '#/app/llmProtocol/kimiOptions';
 import { type ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
 import { DEFAULT_AGENT_PROFILE_NAME, IAgentProfileCatalogService } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { DEFAULT_AGENT_PROFILE_SECTION } from '#/app/agentProfileCatalog/configSection';
 import { type Model } from '#/app/model/modelInstance';
 import { type KimiModelOverrides } from '#/app/model/modelOverrides';
 import { IModelResolver } from '#/app/model/modelResolver';
@@ -185,7 +186,8 @@ export class AgentProfileService implements IAgentProfileService {
   async setModel(alias: string): Promise<ProfileSetModelResult> {
     const model = this.modelFactory.resolve(alias);
     if (this.profileName === undefined) {
-      await this.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: alias });
+      const profileName = this.config.get<string>(DEFAULT_AGENT_PROFILE_SECTION) ?? DEFAULT_AGENT_PROFILE_NAME;
+      await this.bind({ profile: profileName, model: alias });
       this.telemetry.track2('model_switch', { model: alias });
     } else if (this.modelAlias !== alias) {
       this.update({ modelAlias: alias });

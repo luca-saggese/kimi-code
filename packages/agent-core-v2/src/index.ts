@@ -112,6 +112,7 @@ export * from '#/app/modelCatalog/modelCatalog';
 export * from '#/app/modelCatalog/modelCatalogService';
 export * from '#/app/agentProfileCatalog/agentProfileCatalog';
 export * from '#/app/agentProfileCatalog/agentProfileCatalogService';
+import '#/app/agentProfileCatalog/configSection';
 export * from '#/app/agentProfileCatalog/profile-shared';
 export * from '#/app/agentProfileCatalog/promptPrefix';
 export {
@@ -224,6 +225,12 @@ export * from '#/session/cron/sessionCronService';
 export * from '#/session/cron/sessionCronServiceImpl';
 
 import '#/session/agentLifecycle/profile/profiles';
+import '#/agent/brewing/brewing-calculator';
+import '#/agent/brewing/water-profile-calculator';
+import '#/agent/brewing/ibu-calculator';
+import '#/agent/brewing/priming-calculator';
+import '#/agent/brewing/recipe-validator';
+import '#/agent/brewing/inventory-search';
 export * from '#/session/agentLifecycle/agentLifecycle';
 export * from '#/session/agentLifecycle/agentLifecycleService';
 export * from '#/session/agentLifecycle/mainAgent';
