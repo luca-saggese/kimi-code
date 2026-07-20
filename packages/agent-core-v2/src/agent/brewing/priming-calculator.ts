@@ -68,7 +68,7 @@ export class PrimingCalculatorTool implements BuiltinTool<PrimingCalculatorInput
       const toAdd = target - residual;
       if (toAdd <= 0) return Promise.resolve({ output: `CO2 residua sufficiente (${residual.toFixed(2)} vol per ${target} target). Nessuno zucchero necessario.` });
 
-      const sugar = SUGARS[args.sugar_type];
+      const sugar = SUGARS[args.sugar_type ?? 'sucrose'];
       const gPerL = toAdd / sugar.co2;
       const total = gPerL * args.batch_size_liters;
 
