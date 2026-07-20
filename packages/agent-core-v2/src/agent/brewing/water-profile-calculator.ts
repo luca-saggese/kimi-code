@@ -4,9 +4,18 @@
 
 import { z } from 'zod';
 
-import type { BuiltinTool, ToolExecution } from '#/tool/toolContract';
+import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 import { registerTool } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
+
+// ── Salt contributions: mg/L per g/L of salt added ──────────────────────
+// Dihydrate forms: CaSO₄·2H₂O, CaCl₂·2H₂O, MgSO₄·7H₂O
+const SALT = {
+  gypsum:  { ca: 232.8, mg: 0, na: 0, cl: 0, so4: 557.9, hco3: 0, label: 'Gesso (CaSO₄·2H₂O)' },
+  cacl2:   { ca: 272.6, mg: 0, na: 0, cl: 482.3, so4: 0, hco3: 0, label: 'CaCl₂·2H₂O' },
+  epsom:   { ca: 0, mg: 98.6, na: 0, cl: 0, so4: 389.8, hco3: 0, label: 'Epsom (MgSO₄·7H₂O)' },
+  nahco3:  { ca: 0, mg: 0, na: 273.7, cl: 0, so4: 0, hco3: 726.3, label: 'NaHCO₃' },
+} as const;
 
 export const WaterProfileCalculatorInputSchema = z.object({
   source_water: z.object({
@@ -135,7 +144,7 @@ const WATER: Record<string, WaterTarget> = {
 export class WaterProfileCalculatorTool implements BuiltinTool<WaterProfileCalculatorInput> {
   readonly name = 'water_profile_calculator' as const;
   readonly description =
-    'Calculate water mineral additions (gypsum, CaCl2, Epsom, baking soda, chalk, lactic acid) to hit a target water profile for any beer style.';
+    'Calculate water mineral additions (gypsum, CaCl2, Epsom, baking soda, lactic acid) to hit a target water profile for any beer style. Uses a multi-variable solver that accounts for cross-ion contributions.';
   readonly parameters: Record<string, unknown> = toInputJsonSchema(WaterProfileCalculatorInputSchema);
 
   resolveExecution(args: WaterProfileCalculatorInput): ToolExecution {
@@ -151,31 +160,162 @@ export class WaterProfileCalculatorTool implements BuiltinTool<WaterProfileCalcu
       const t = WATER[args.target_profile];
       if (!t) return Promise.resolve({ isError: true, output: `Unknown: "${args.target_profile}"` });
       const s = args.source_water;
+
+      // ── Water volume ──────────────────────────────────────────────────
+      const mashVol = args.mash_water_liters ?? 0;
+      const spargeVol = args.sparge_water_liters ?? 0;
+      const totalVol = mashVol + spargeVol;
+      if (totalVol <= 0) {
+        return Promise.resolve({
+          isError: true,
+          output: 'Specificare mash_water_liters e/o sparge_water_liters (volume d\'acqua, non batch size).',
+        });
+      }
+
+      // ── Multi-variable solver ─────────────────────────────────────────
+      // We solve for g/L of each salt, then scale by totalVol.
+      //   final = source + Σ(salt_g_l × SALT[salt])
+      // Minimise sum-of-squared errors with sensible bounds.
+      //
+      // Bounds (g/L of each salt):
+      const MAX_GYPSUM = 3;   // ~700 mg/L Ca, ~1670 mg/L SO₄ — way above any sane target
+      const MAX_CACL2 = 3;
+      const MAX_EPSOM = 2;
+      const MAX_NAHCO3 = 2;
+
+      let best: { gypsum: number; cacl2: number; epsom: number; nahco3: number; error: number } | null = null;
+
+      // Coarse grid search, then refine around the best candidate.
+      for (let pass = 0; pass < 2; pass++) {
+        const steps = pass === 0 ? 20 : 5;
+        const b = best!;
+        const gRange: number = pass === 0 ? MAX_GYPSUM : Math.min(b.gypsum + 0.3, MAX_GYPSUM);
+        const gMin: number = pass === 0 ? 0 : Math.max(b.gypsum - 0.3, 0);
+        const cRange: number = pass === 0 ? MAX_CACL2 : Math.min(b.cacl2 + 0.3, MAX_CACL2);
+        const cMin: number = pass === 0 ? 0 : Math.max(b.cacl2 - 0.3, 0);
+        const eRange: number = pass === 0 ? MAX_EPSOM : Math.min(b.epsom + 0.3, MAX_EPSOM);
+        const eMin: number = pass === 0 ? 0 : Math.max(b.epsom - 0.3, 0);
+        const nRange: number = pass === 0 ? MAX_NAHCO3 : Math.min(b.nahco3 + 0.3, MAX_NAHCO3);
+        const nMin: number = pass === 0 ? 0 : Math.max(b.nahco3 - 0.3, 0);
+
+        for (let gi = 0; gi <= steps; gi++) {
+          const gypsum = gMin + (gRange - gMin) * gi / steps;
+          for (let ci = 0; ci <= steps; ci++) {
+            const cacl2 = cMin + (cRange - cMin) * ci / steps;
+            for (let ei = 0; ei <= steps; ei++) {
+              const epsom = eMin + (eRange - eMin) * ei / steps;
+              for (let ni = 0; ni <= steps; ni++) {
+                const nahco3 = nMin + (nRange - nMin) * ni / steps;
+
+                const finalCa = s.ca + gypsum * SALT.gypsum.ca + cacl2 * SALT.cacl2.ca;
+                const finalMg = s.mg + epsom * SALT.epsom.mg;
+                const finalNa = s.na + nahco3 * SALT.nahco3.na;
+                const finalCl = s.cl + cacl2 * SALT.cacl2.cl;
+                const finalSo4 = s.so4 + gypsum * SALT.gypsum.so4 + epsom * SALT.epsom.so4;
+                const finalHco3 = s.hco3 + nahco3 * SALT.nahco3.hco3;
+
+                // Penalty: squared relative error per ion
+                const errCa = t.ca > 0 ? ((finalCa - t.ca) / t.ca) ** 2 : (finalCa ** 2);
+                const errMg = t.mg > 0 ? ((finalMg - t.mg) / t.mg) ** 2 : (finalMg ** 2);
+                const errNa = t.na > 0 ? ((finalNa - t.na) / t.na) ** 2 : (finalNa ** 2);
+                const errCl = t.cl > 0 ? ((finalCl - t.cl) / t.cl) ** 2 : (finalCl ** 2);
+                const errSo4 = t.so4 > 0 ? ((finalSo4 - t.so4) / t.so4) ** 2 : (finalSo4 ** 2);
+                const errHco3 = t.hco3 > 0 ? ((finalHco3 - t.hco3) / t.hco3) ** 2 : (finalHco3 ** 2);
+
+                // Penalty for overshooting sensible ranges
+                const overCa = finalCa > 200 ? (finalCa - 200) * 0.1 : 0;
+                const overMg = finalMg > 30 ? (finalMg - 30) * 0.1 : 0;
+                const overNa = finalNa > 150 ? (finalNa - 150) * 0.1 : 0;
+                const overCl = finalCl > 300 ? (finalCl - 300) * 0.1 : 0;
+                const overSo4 = finalSo4 > 400 ? (finalSo4 - 400) * 0.1 : 0;
+
+                const error = errCa + errMg + errNa + errCl + errSo4 + errHco3 + overCa + overMg + overNa + overCl + overSo4;
+
+                if (best === null || error < best.error) {
+                  best = { gypsum, cacl2, epsom, nahco3, error };
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (!best) {
+        return Promise.resolve({ isError: true, output: 'Impossibile trovare una combinazione di sali valida.' });
+      }
+
+      // ── Compute final profile ─────────────────────────────────────────
+      const g = best.gypsum;
+      const cc = best.cacl2;
+      const e = best.epsom;
+      const n = best.nahco3;
+
+      const finalCa = s.ca + g * SALT.gypsum.ca + cc * SALT.cacl2.ca;
+      const finalMg = s.mg + e * SALT.epsom.mg;
+      const finalNa = s.na + n * SALT.nahco3.na;
+      const finalCl = s.cl + cc * SALT.cacl2.cl;
+      const finalSo4 = s.so4 + g * SALT.gypsum.so4 + e * SALT.epsom.so4;
+      const finalHco3 = s.hco3 + n * SALT.nahco3.hco3;
+
+      // ── Lactic acid for HCO₃ reduction ────────────────────────────────
+      // 88% lactic acid: ~11.75 mmol/mL, HCO₃ MW = 61.016 g/mol
+      // mL needed = (hco3Reduction_mg_L × totalVol_L) / (61.016 × 11.75)
+      //           = hco3Reduction_mg_L × totalVol_L × 0.001394
+      const hco3Reduction = s.hco3 - t.hco3; // positive = need to reduce
+      let acidMl = 0;
+      if (hco3Reduction > 50) {
+        acidMl = hco3Reduction * totalVol * 0.001394;
+      }
+
+      // ── Build output ──────────────────────────────────────────────────
       const lines: string[] = [
         `Profilo acqua per **${args.target_profile}** (${t.desc})`,
         '',
-        'Acqua sorgente vs target:',
-        `  Ca:  ${s.ca} → ${t.ca} mg/L`,
-        `  Mg:  ${s.mg} → ${t.mg} mg/L`,
-        `  Na:  ${s.na} → ${t.na} mg/L`,
-        `  Cl:  ${s.cl} → ${t.cl} mg/L`,
-        `  SO4: ${s.so4} → ${t.so4} mg/L`,
-        `  HCO3: ${s.hco3} → ${t.hco3} mg/L`,
+        `Volume acqua: ${totalVol.toFixed(1)} L (mash ${mashVol.toFixed(1)} L, sparge ${spargeVol.toFixed(1)} L)`,
         '',
-        'Aggiunte consigliate:',
+        'Acqua sorgente → target → risultato:',
+        `  Ca:   ${s.ca} → ${t.ca} → ${finalCa.toFixed(1)} mg/L`,
+        `  Mg:   ${s.mg} → ${t.mg} → ${finalMg.toFixed(1)} mg/L`,
+        `  Na:   ${s.na} → ${t.na} → ${finalNa.toFixed(1)} mg/L`,
+        `  Cl:   ${s.cl} → ${t.cl} → ${finalCl.toFixed(1)} mg/L`,
+        `  SO₄:  ${s.so4} → ${t.so4} → ${finalSo4.toFixed(1)} mg/L`,
+        `  HCO₃: ${s.hco3} → ${t.hco3} → ${finalHco3.toFixed(1)} mg/L`,
+        '',
+        'Aggiunte consigliate (acqua totale):',
       ];
-      const caDiff = t.ca - s.ca;
-      if (caDiff > 0) lines.push(`  • Gesso (CaSO4): ~${(caDiff * 4.0 * args.batch_size_liters / 1000).toFixed(1)} g`);
-      const so4Diff = t.so4 - s.so4;
-      if (so4Diff > 0) lines.push(`  • Gesso per solfati: ~${(so4Diff * 4.3 * args.batch_size_liters / 1000).toFixed(1)} g`);
-      const clDiff = t.cl - s.cl;
-      if (clDiff > 0) lines.push(`  • CaCl2: ~${(clDiff * 2.1 * args.batch_size_liters / 1000).toFixed(1)} g`);
-      const mgDiff = t.mg - s.mg;
-      if (mgDiff > 0) lines.push(`  • Epsom (MgSO4): ~${(mgDiff * 10.1 * args.batch_size_liters / 1000).toFixed(1)} g`);
-      const hco3Diff = t.hco3 - s.hco3;
-      if (hco3Diff > 0) lines.push(`  • NaHCO3: ~${(hco3Diff * 1.4 * args.batch_size_liters / 1000).toFixed(1)} g`);
-      else if (hco3Diff < -50) lines.push(`  • Acido lattico 88%: ~${(Math.abs(hco3Diff) * args.batch_size_liters * 0.01).toFixed(1)} ml`);
-      if (lines.length <= 7) lines.push('  • Nessuna aggiunta necessaria.');
+
+      const adds: string[] = [];
+      const gypsumG = g * totalVol;
+      const cacl2G = cc * totalVol;
+      const epsomG = e * totalVol;
+      const nahco3G = n * totalVol;
+
+      if (gypsumG > 0.05) adds.push(`  • ${SALT.gypsum.label}: ~${gypsumG.toFixed(1)} g`);
+      if (cacl2G > 0.05) adds.push(`  • ${SALT.cacl2.label}: ~${cacl2G.toFixed(1)} g`);
+      if (epsomG > 0.05) adds.push(`  • ${SALT.epsom.label}: ~${epsomG.toFixed(1)} g`);
+      if (nahco3G > 0.05) adds.push(`  • ${SALT.nahco3.label}: ~${nahco3G.toFixed(1)} g`);
+      if (acidMl > 0.5) adds.push(`  • Acido lattico 88%: ~${acidMl.toFixed(1)} ml (nel mash)`);
+
+      if (adds.length === 0) adds.push('  • Nessuna aggiunta necessaria.');
+      lines.push(...adds);
+
+      // ── Warnings for residual deviations ──────────────────────────────
+      const warnings: string[] = [];
+      const so4Dev = finalSo4 - t.so4;
+      if (Math.abs(so4Dev) > 10) {
+        warnings.push(`  ⚠ SO₄ devia di ${so4Dev > 0 ? '+' : ''}${so4Dev.toFixed(0)} mg/L dal target (compromesso con Ca/Mg).`);
+      }
+      const naDev = finalNa - t.na;
+      if (Math.abs(naDev) > 10) {
+        warnings.push(`  ⚠ Na devia di ${naDev > 0 ? '+' : ''}${naDev.toFixed(0)} mg/L dal target (legato a HCO₃).`);
+      }
+      if (acidMl > 0.5) {
+        warnings.push('  ⚠ L\'acido lattico è una stima. Il pH reale dipende da alcalinità, grist e pH target.');
+      }
+      if (warnings.length > 0) {
+        lines.push('', 'Note:', ...warnings);
+      }
+
       return Promise.resolve({ output: lines.join('\n') });
     } catch (e) {
       return Promise.resolve({ isError: true, output: e instanceof Error ? e.message : String(e) });

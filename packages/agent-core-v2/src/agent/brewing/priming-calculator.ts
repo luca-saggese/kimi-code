@@ -4,7 +4,7 @@
 
 import { z } from 'zod';
 
-import type { BuiltinTool, ToolExecution } from '#/tool/toolContract';
+import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 import { registerTool } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
 
@@ -74,6 +74,7 @@ export class PrimingCalculatorTool implements BuiltinTool<PrimingCalculatorInput
       if (co2ToAdd <= 0) return Promise.resolve({ output: `CO2 residua sufficiente (${residual.toFixed(2)} vol per ${target} target). Nessuno zucchero necessario.` });
 
       const sugar = SUGARS[args.sugar_type ?? 'sucrose'];
+      if (!sugar) return Promise.resolve({ isError: true, output: `Zucchero non supportato: "${args.sugar_type}"` });
       const gPerL = co2ToAdd * sugar.gramsPerLiterPerVolume;
       const total = gPerL * args.batch_size_liters;
 
@@ -83,7 +84,7 @@ export class PrimingCalculatorTool implements BuiltinTool<PrimingCalculatorInput
           `Dosaggio: ${gPerL.toFixed(1)} g/L × ${args.batch_size_liters.toFixed(1)} L`,
           `Carbonazione target: ${target.toFixed(1)} vol CO2`,
           `CO2 residua a ${tempC}°C: ${residual.toFixed(2)} vol`,
-          `CO2 da aggiungere: ${toAdd.toFixed(2)} vol`,
+          `CO2 da aggiungere: ${co2ToAdd.toFixed(2)} vol`,
         ].join('\n'),
       });
     } catch (e) {
