@@ -24,14 +24,19 @@ import type { Session, WorkspaceGroup as WorkspaceGroupType, WorkspaceView } fro
 import SearchSessionsDialog from './dialogs/SearchSessionsDialog.vue';
 import WorkspaceGroup from './WorkspaceGroup.vue';
 import { isMacosDesktop } from '../lib/desktopFlag';
+import { clearCredential, hasBasicAuth } from '../api/daemon/serverAuth';
 import IconButton from './ui/IconButton.vue';
 import Icon from './ui/Icon.vue';
 import Kbd from './ui/Kbd.vue';
 import Menu from './ui/Menu.vue';
 import MenuItem from './ui/MenuItem.vue';
 import Pill from './ui/Pill.vue';
+import { brand } from '../brand';
 
 const { t } = useI18n();
+
+// Reactive brand values from the white-label config.
+const brandName = computed(() => brand.productName);
 
 // Dev-only affordance: when the page is served by the Vite dev server, the
 // logo turns yellow and a backend pill next to the brand shows the engine
@@ -163,6 +168,16 @@ function onSessionsScroll(e: Event): void {
 // Collapse groups
 // ---------------------------------------------------------------------------
 const collapsedIds = ref<Set<string>>(new Set(loadCollapsedWorkspaces()));
+
+// ---------------------------------------------------------------------------
+// Sign out (clear credential + reload)
+// ---------------------------------------------------------------------------
+const showLogout = computed(() => hasBasicAuth());
+
+function handleLogout(): void {
+  clearCredential();
+  window.location.reload();
+}
 
 function isCollapsed(id: string): boolean {
   return collapsedIds.value.has(id);
@@ -650,7 +665,22 @@ onBeforeUnmount(() => {
       <div class="ch">
         <div class="ch-brand">
           <template v-if="!isMacosDesktop">
-            <svg ref="logoRef" class="ch-logo" :class="{ 'is-dev': isDev }" viewBox="0 0 32 22" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Kimi Code" @click="onLogoClick" @pointerdown="onLogoPointerDown" @pointerup="onLogoPointerUp" @pointercancel="onLogoPointerUp">
+            <!-- Kimi eyes logo (always the built-in SVG, recolored via --logo) -->
+            <svg
+              v-if="brand.logo.type === 'kimi-eyes'"
+              ref="logoRef"
+              class="ch-logo"
+              :class="{ 'is-dev': isDev }"
+              viewBox="0 0 32 22"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              role="img"
+              :aria-label="brand.logo.ariaLabel"
+              @click="onLogoClick"
+              @pointerdown="onLogoPointerDown"
+              @pointerup="onLogoPointerUp"
+              @pointercancel="onLogoPointerUp"
+            >
               <defs>
                 <mask id="kimiEyes" maskUnits="userSpaceOnUse">
                   <rect x="0" y="0" width="32" height="22" fill="#fff" />
@@ -662,7 +692,37 @@ onBeforeUnmount(() => {
               </defs>
               <rect x="1" y="1" width="30" height="20" rx="6" fill="var(--logo)" mask="url(#kimiEyes)" />
             </svg>
-            <span class="ch-name">Kimi Code</span>
+            <!-- Custom SVG logo -->
+            <img
+              v-else-if="brand.logo.type === 'custom-svg'"
+              ref="logoRef"
+              class="ch-logo"
+              :class="{ 'is-dev': isDev }"
+              :src="brand.logo.src"
+              :aria-label="brand.logo.ariaLabel"
+              role="img"
+              @click="onLogoClick"
+              @pointerdown="onLogoPointerDown"
+              @pointerup="onLogoPointerUp"
+              @pointercancel="onLogoPointerUp"
+            />
+            <!-- Custom image logo -->
+            <img
+              v-else-if="brand.logo.type === 'custom-image'"
+              ref="logoRef"
+              class="ch-logo"
+              :class="{ 'is-dev': isDev }"
+              :src="brand.logo.src"
+              :width="brand.logo.width"
+              :height="brand.logo.height"
+              :aria-label="brand.logo.ariaLabel"
+              role="img"
+              @click="onLogoClick"
+              @pointerdown="onLogoPointerDown"
+              @pointerup="onLogoPointerUp"
+              @pointercancel="onLogoPointerUp"
+            />
+            <span class="ch-name">{{ brandName }}</span>
             <Pill
               v-if="isDev"
               class="ch-backend"
@@ -791,11 +851,20 @@ onBeforeUnmount(() => {
         </template>
       </div>
 
-      <!-- Footer: settings entry pinned under the session list -->
+      <!-- Footer: settings and sign out -->
       <div class="side-footer">
         <button class="btn-settings" type="button" @click.stop="emit('openSettings')">
           <Icon name="settings" />
           <span>{{ t('settings.title') }}</span>
+        </button>
+        <button
+          v-if="showLogout"
+          class="btn-settings"
+          type="button"
+          @click.stop="handleLogout"
+        >
+          <Icon name="signOut" />
+          <span>{{ t('sidebar.signOut') }}</span>
         </button>
       </div>
     </div>

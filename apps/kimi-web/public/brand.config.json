@@ -1,0 +1,22 @@
+{
+  "$schema": "./brand.schema.json",
+  "productName": "Kimi Code",
+  "productNameShort": "Kimi",
+  "htmlTitle": "Kimi Code Web",
+  "favicon": "/favicon.ico",
+  "accentColor": {
+    "light": "#1783ff",
+    "dark": "#58a6ff"
+  },
+  "notificationPrefix": "Kimi Code",
+  "daemonName": "kimi-code",
+  "clientName": "kimi-code-web",
+  "filePrefix": "kimi-web",
+  "storagePrefix": "kimi-web",
+  "loginHint": "Please upgrade kimi-code and try again",
+  "loginHintZh": "请升级 kimi-code 后重试",
+  "logo": {
+    "type": "kimi-eyes",
+    "ariaLabel": "Kimi Code"
+  }
+}

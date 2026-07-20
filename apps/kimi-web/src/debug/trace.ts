@@ -10,6 +10,7 @@
 
 import { ref, shallowRef } from 'vue';
 import { safeGetString, STORAGE_KEYS } from '../lib/storage';
+import { brand } from '../brand';
 
 export type TraceSource = 'rest' | 'ws' | 'client';
 
@@ -614,7 +615,7 @@ export function downloadTraceLog(list: readonly TraceEntry[] = entries): void {
   try {
     anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `kimi-web-log-${new Date().toISOString().replaceAll(/[:.]/g, '-')}.jsonl`;
+    anchor.download = `${brand.filePrefix}-log-${new Date().toISOString().replaceAll(/[:.]/g, '-')}.jsonl`;
     document.body.append(anchor);
     anchor.click();
   } finally {

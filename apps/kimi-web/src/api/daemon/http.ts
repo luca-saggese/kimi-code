@@ -4,7 +4,7 @@
 import { buildRestUrl } from '../config';
 import { DaemonApiError, DaemonNetworkError } from '../errors';
 import { traceRestFailure, traceRestRequest, traceRestResponse } from '../../debug/trace';
-import { getCredential, markAuthRequired } from './serverAuth';
+import { getAuthHeader, markAuthRequired } from './serverAuth';
 import type { WireEnvelope } from './wire';
 
 /** Per-request timeout. Without one, a hung connection (half-open TCP after a
@@ -533,9 +533,9 @@ export class DaemonHttpClient {
   }
 
   private addClientHeaders(headers: Record<string, string>): void {
-    const credential = getCredential();
-    if (credential !== undefined) {
-      headers['Authorization'] = `Bearer ${credential}`;
+    const auth = getAuthHeader();
+    if (auth !== undefined) {
+      headers[auth.header] = auth.value;
     }
     if (this.identity === undefined) return;
     headers['X-Kimi-Client-Id'] = this.identity.clientId;

@@ -5,6 +5,7 @@
 // at a glance.
 
 import { computed, onUnmounted, ref, watch, watchEffect, type Ref } from 'vue';
+import { brand } from '../brand';
 import { useI18n } from 'vue-i18n';
 
 export interface UsePageTitleOptions {
@@ -42,8 +43,8 @@ export function usePageTitle({ running, showAuthGate }: UsePageTitleOptions): vo
 
   const pageTitle = computed<string>(() => {
     const prefix = running.value ? `${SPINNER_FRAMES[spinnerFrame.value]} ` : '';
-    if (showAuthGate.value) return `${prefix}${t('app.authPageTitle')} - Kimi Code Web`;
-    return `${prefix}Kimi Code Web`;
+    if (showAuthGate.value) return `${prefix}${t('app.authPageTitle', { brand: brand.productName })} - ${brand.htmlTitle}`;
+    return `${prefix}${brand.htmlTitle}`;
   });
   watchEffect(() => {
     if (typeof document !== 'undefined') document.title = pageTitle.value;

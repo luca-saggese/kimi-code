@@ -48,6 +48,7 @@ import IconButton from './components/ui/IconButton.vue';
 import Icon from './components/ui/Icon.vue';
 import InternalBuildBanner from './components/InternalBuildBanner.vue';
 import { isMacosDesktop } from './lib/desktopFlag';
+import { brand } from './brand';
 
 // Hydrate the server-transport credential (fragment token or localStorage)
 // BEFORE the client connects, so the first REST/WS calls already carry it.
@@ -700,8 +701,8 @@ function openPr(url: string): void {
           <rect x="1" y="1" width="30" height="20" rx="6" fill="var(--logo)" mask="url(#authKimiEyes)" />
         </svg>
         <div class="auth-page-copy">
-          <h1>{{ t('app.authPageTitle') }}</h1>
-          <p>{{ t('app.authPageMessage') }}</p>
+          <h1>{{ t('app.authPageTitle', { brand: brand.productName }) }}</h1>
+          <p>{{ t('app.authPageMessage', { brand: brand.productName }) }}</p>
         </div>
         <Button class="auth-page-btn" variant="primary" @click="openLogin">
           <Icon name="log-in" size="md" />

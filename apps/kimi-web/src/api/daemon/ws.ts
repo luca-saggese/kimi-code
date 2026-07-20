@@ -5,7 +5,7 @@
 
 import { traceWsIn, traceWsLifecycle, traceWsOut } from '../../debug/trace';
 import { classifyFrame } from './agentEventProjector';
-import { getCredential } from './serverAuth';
+import { getAuthHeader, getBasicCredential, getCredential } from './serverAuth';
 import type { WireEvent, WireServerFrame } from './wire';
 
 // Mirrors kap-server's WS_BEARER_PROTOCOL_PREFIX. The browser WebSocket API
@@ -109,7 +109,12 @@ export class DaemonEventSocket {
 
     this.lastActivityAt = Date.now();
     traceWsLifecycle('connect', { url: this.wsUrl, attempt: this.reconnectAttempts });
-    const credential = getCredential();
+    // For the WS subprotocol, the credential must be the raw token without
+    // "Bearer " or "Basic " prefix — those have spaces and are illegal in
+    // subprotocol names. The server's validateCredential handles both formats.
+    const basic = getBasicCredential();
+    const bearer = getCredential();
+    const credential: string | undefined = basic ?? bearer;
     const protocols =
       credential !== undefined ? [`${WS_BEARER_PROTOCOL_PREFIX}${credential}`] : undefined;
     const ws = new WebSocket(this.wsUrl, protocols);

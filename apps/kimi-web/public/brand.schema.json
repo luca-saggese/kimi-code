@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "White-label Brand Configuration",
+  "type": "object",
+  "properties": {
+    "productName": {
+      "type": "string",
+      "description": "Full product name displayed in the sidebar and UI.",
+      "default": "Kimi Code"
+    },
+    "productNameShort": {
+      "type": "string",
+      "description": "Short product name for space-constrained contexts.",
+      "default": "Kimi"
+    },
+    "htmlTitle": {
+      "type": "string",
+      "description": "The <title> tag content.",
+      "default": "Kimi Code Web"
+    },
+    "favicon": {
+      "type": "string",
+      "description": "Path to the favicon relative to public/. Must start with '/'.",
+      "default": "/favicon.ico"
+    },
+    "accentColor": {
+      "type": "object",
+      "properties": {
+        "light": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "dark": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }
+      },
+      "required": ["light", "dark"],
+      "description": "Primary accent colors for light and dark themes."
+    },
+    "notificationPrefix": {
+      "type": "string",
+      "description": "Prefix used in browser notification titles.",
+      "default": "Kimi Code"
+    },
+    "daemonName": {
+      "type": "string",
+      "description": "Name of the daemon/CLI process (used in auth error hints).",
+      "default": "kimi-code"
+    },
+    "clientName": {
+      "type": "string",
+      "description": "Client name sent in API handshakes.",
+      "default": "kimi-code-web"
+    },
+    "filePrefix": {
+      "type": "string",
+      "description": "Prefix used in file names (e.g. debug log downloads).",
+      "default": "kimi-web"
+    },
+    "storagePrefix": {
+      "type": "string",
+      "description": "Prefix used for localStorage keys.",
+      "default": "kimi-web"
+    },
+    "loginHint": {
+      "type": "string",
+      "description": "English hint shown when the daemon doesn't support login."
+    },
+    "loginHintZh": {
+      "type": "string",
+      "description": "Chinese hint shown when the daemon doesn't support login."
+    },
+    "logo": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": ["kimi-eyes", "custom-svg", "custom-image"],
+          "description": "Logo type. 'kimi-eyes' uses the built-in Kimi eyes SVG (recolored); 'custom-svg' reads a custom SVG from a URL; 'custom-image' uses a <img> tag."
+        },
+        "ariaLabel": {
+          "type": "string",
+          "description": "Accessible label for the logo."
+        },
+        "src": {
+          "type": "string",
+          "description": "Path to the logo file (required for custom-svg and custom-image)."
+        },
+        "width": {
+          "type": "number",
+          "description": "Natural width for custom-image logos."
+        },
+        "height": {
+          "type": "number",
+          "description": "Natural height for custom-image logos."
+        }
+      },
+      "required": ["type", "ariaLabel"]
+    }
+  },
+  "required": [
+    "productName",
+    "productNameShort",
+    "htmlTitle",
+    "favicon",
+    "accentColor",
+    "clientName",
+    "filePrefix",
+    "storagePrefix"
+  ]
+}

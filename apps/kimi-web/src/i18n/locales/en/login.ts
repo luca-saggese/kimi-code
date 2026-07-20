@@ -1,5 +1,5 @@
 export default {
-  title: 'Sign in to Kimi Code',
+  title: 'Sign in to {brand}',
   close: 'Close (Esc)',
   starting: 'Starting authorization flow…',
   lead: 'Click the button below to authorize in a new browser tab.',
@@ -18,7 +18,7 @@ export default {
   retry: 'Retry',
   closeBtn: 'Close',
   errorTitle: 'The current daemon does not support login yet',
-  errorHint: 'Please upgrade kimi-code and try again',
+  errorHint: 'Please upgrade {daemonName} and try again',
   pollErrorTitle: 'Lost connection to the daemon',
   pollErrorHint: 'Authorization polling failed repeatedly. Check the kimi-code process and try again.',
 } as const;

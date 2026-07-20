@@ -1,29 +1,40 @@
 <!-- apps/kimi-web/src/components/ServerAuthDialog.vue -->
-<!-- Minimal token prompt shown when the Web UI has no server-transport
-     credential, or when the server rejects it (HTTP 401). On submit we store
-     the token as the bearer credential and reload so every REST/WS call picks
-     it up. The overlay uses a tokened translucent backdrop and the card follows
-     the unified v2 dialog look. -->
+<!-- Token or Username+Password prompt shown when the Web UI needs a
+     server credential. Supports both Bearer tokens (server token /
+     KIMI_CODE_PASSWORD) and Basic auth (multi-user via users.json). -->
 <script setup lang="ts">
 import { nextTick, onMounted, ref } from 'vue';
-import { setCredential } from '../api/daemon/serverAuth';
+import { setCredential, setUserPass } from '../api/daemon/serverAuth';
 import Button from './ui/Button.vue';
 import Input from './ui/Input.vue';
+import Switch from './ui/Switch.vue';
 
-const credential = ref('');
-const inputRef = ref<InstanceType<typeof Input> | null>(null);
+const mode = ref<'token' | 'basic'>('token');
+const token = ref('');
+const username = ref('');
+const password = ref('');
+const tokenRef = ref<InstanceType<typeof Input> | null>(null);
+const usernameRef = ref<InstanceType<typeof Input> | null>(null);
 const submitting = ref(false);
 
 onMounted(() => {
-  void nextTick(() => inputRef.value?.focus());
+  void nextTick(() => tokenRef.value?.focus());
 });
 
 function submit(): void {
-  const value = credential.value;
-  if (!value || submitting.value) return;
-  submitting.value = true;
-  setCredential(value);
-  // Reload so the HTTP client and WebSocket reconnect with the new credential.
+  if (submitting.value) return;
+  if (mode.value === 'token') {
+    const value = token.value;
+    if (!value) return;
+    submitting.value = true;
+    setCredential(value);
+  } else {
+    const u = username.value;
+    const p = password.value;
+    if (!u || !p) return;
+    submitting.value = true;
+    setUserPass(u, p);
+  }
   window.location.reload();
 }
 
@@ -33,37 +44,76 @@ function onKeydown(e: KeyboardEvent): void {
     submit();
   }
 }
+
+function switchMode(): void {
+  mode.value = mode.value === 'token' ? 'basic' : 'token';
+  void nextTick(() => {
+    if (mode.value === 'token') tokenRef.value?.focus();
+    else usernameRef.value?.focus();
+  });
+}
 </script>
 
 <template>
   <div class="server-auth-overlay" role="dialog" aria-modal="true" aria-labelledby="server-auth-title">
     <div class="server-auth-card">
       <div class="server-auth-head">
-        <h1 id="server-auth-title" class="server-auth-title">Server token required</h1>
+        <h1 id="server-auth-title" class="server-auth-title">
+          {{ mode === 'token' ? 'Server token required' : 'Sign in' }}
+        </h1>
         <p class="server-auth-hint">
-          This server is protected. Enter the bearer token printed when the server
-          started (or the password set via <code>KIMI_CODE_PASSWORD</code>).
+          <template v-if="mode === 'token'">
+            Enter the server token or <code>KIMI_CODE_PASSWORD</code>.
+            <button type="button" class="mode-link" @click="switchMode">Sign in with username &amp; password instead</button>
+          </template>
+          <template v-else>
+            Enter your username and password.
+            <button type="button" class="mode-link" @click="switchMode">Use a server token instead</button>
+          </template>
         </p>
       </div>
       <div class="server-auth-body">
-        <Input
-          ref="inputRef"
-          v-model="credential"
-          type="password"
-          autocomplete="current-password"
-          placeholder="Token"
-          :disabled="submitting"
-          @keydown="onKeydown"
-        />
+        <template v-if="mode === 'token'">
+          <Input
+            ref="tokenRef"
+            v-model="token"
+            type="password"
+            autocomplete="current-password"
+            placeholder="Token or password"
+            :disabled="submitting"
+            @keydown="onKeydown"
+          />
+        </template>
+        <template v-else>
+          <div class="basic-fields">
+            <Input
+              ref="usernameRef"
+              v-model="username"
+              type="text"
+              autocomplete="username"
+              placeholder="Username"
+              :disabled="submitting"
+              @keydown="onKeydown"
+            />
+            <Input
+              v-model="password"
+              type="password"
+              autocomplete="current-password"
+              placeholder="Password"
+              :disabled="submitting"
+              @keydown="onKeydown"
+            />
+          </div>
+        </template>
       </div>
       <div class="server-auth-foot">
         <Button
           variant="primary"
-          :disabled="!credential || submitting"
+          :disabled="(mode === 'token' ? !token : !username || !password) || submitting"
           :loading="submitting"
           @click="submit"
         >
-          {{ submitting ? 'Connecting…' : 'Connect' }}
+          {{ submitting ? 'Connecting…' : (mode === 'token' ? 'Connect' : 'Sign in') }}
         </Button>
       </div>
     </div>
@@ -74,8 +124,6 @@ function onKeydown(e: KeyboardEvent): void {
 .server-auth-overlay {
   position: fixed;
   inset: 0;
-  /* Above the connecting splash (--z-toast): on a 401 during first load the
-     splash stays up, and this prompt must remain reachable on top of it. */
   z-index: var(--z-max);
   display: flex;
   align-items: center;
@@ -124,8 +172,30 @@ function onKeydown(e: KeyboardEvent): void {
   border-radius: var(--radius-xs);
 }
 
+.mode-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-accent);
+  cursor: pointer;
+  font-size: inherit;
+  font-family: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.mode-link:hover {
+  color: var(--color-accent-hover);
+}
+
 .server-auth-body {
   padding: 4px 22px 18px;
+}
+
+.basic-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .server-auth-foot {

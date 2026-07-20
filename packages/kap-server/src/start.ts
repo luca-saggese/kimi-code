@@ -72,6 +72,7 @@ import {
 import { createCredentialValidator } from './services/auth/credentials';
 import { resolvePasswordHash } from './services/auth/password';
 import { createTokenStore } from './services/auth/tokenStore';
+import { createUserStore } from './services/auth/users';
 
 export interface ServerStartOptions {
   readonly host?: string;
@@ -191,10 +192,12 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
   }
   // Unified credential: the persistent token (or password) protects every
   // route; the optional `rpcToken` is accepted as an additional credential
-  // for the `/api/v2` surface. The same validator backs the HTTP auth hook,
+  // for the `/api/v2` surface. When `users.json` exists, Basic auth
+  // credentials are also accepted. The same validator backs the HTTP auth hook,
   // the WS upgrade handler, and the post-connect handshakes so one credential
   // gates all surfaces and upgrade / handshake can never disagree.
-  const validateCredential = createCredentialValidator(authTokenService, opts.rpcToken);
+  const userStore = createUserStore(homeDir);
+  const validateCredential = createCredentialValidator(authTokenService, opts.rpcToken, userStore);
   // `ILogOptions` (logSeed) is required by the Session-scoped log writer; any
   // route that creates a session (e.g. POST /sessions) would otherwise fail to
   // instantiate the Session scope. Resolve it from env + homeDir like the CLI.
@@ -421,8 +424,9 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     if (opts.disableAuth !== true) {
       const authHeader = req.headers.authorization;
       const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
+      const basicToken = authHeader?.startsWith('Basic ') ? authHeader.slice('Basic '.length) : null;
       const protocolToken = extractWsBearerToken(req.headers['sec-websocket-protocol']);
-      const candidate = bearerToken !== null && bearerToken.length > 0 ? bearerToken : protocolToken;
+      const candidate = bearerToken ?? basicToken ?? protocolToken;
       // Require a valid credential at the upgrade: a token-less (or invalid)
       // upgrade is rejected with 401 for both `/api/v1/ws` and `/api/v2/ws`.
       let ok = false;

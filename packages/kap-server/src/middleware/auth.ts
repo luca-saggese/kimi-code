@@ -1,5 +1,9 @@
 /**
  * Global HTTP bearer-auth hook.
+ *
+ * Supports both Bearer tokens (server token, rpcToken) and Basic auth
+ * (multi-user via users.json). On success, attaches `req.authenticatedUser`
+ * so downstream routes know who made the request.
  */
 
 import type { FastifyReply, FastifyRequest } from 'fastify';
@@ -13,10 +17,37 @@ import {
   type AuthFailureLimiter,
 } from './rateLimit';
 
+declare module 'fastify' {
+  interface FastifyRequest {
+    /** Username authenticated via Basic auth, or null for token-based auth. */
+    authenticatedUser?: string;
+  }
+}
+
 const AUTH_ERROR_CODE = 40101;
 const AUTH_ERROR_MSG = 'Unauthorized';
 const REDACTED = '[redacted]';
 const BEARER_PREFIX = 'Bearer ';
+const BASIC_PREFIX = 'Basic ';
+
+/**
+ * Decode "Basic base64(username:password)" → { username } or null.
+ * Only the username is returned — the password stays with the validator.
+ */
+function extractBasicUser(header: string): string | null {
+  if (!header.startsWith(BASIC_PREFIX)) return null;
+  const encoded = header.slice(BASIC_PREFIX.length);
+  if (encoded.length === 0) return null;
+  let decoded: string;
+  try {
+    decoded = Buffer.from(encoded, 'base64').toString('utf-8');
+  } catch {
+    return null;
+  }
+  const colon = decoded.indexOf(':');
+  if (colon <= 0) return null;
+  return decoded.substring(0, colon);
+}
 
 export interface AuthHookOptions {
   readonly isBypassed?: (req: FastifyRequest) => boolean;
@@ -100,7 +131,6 @@ export function createAuthHook(
     }
 
     const header = req.headers.authorization;
-    const token = extractBearer(header);
 
     if (isBypassed(req)) {
       return;
@@ -110,14 +140,34 @@ export function createAuthHook(
       req.headers.authorization = REDACTED;
     }
 
-    if (token === null) {
+    if (header === undefined) {
       opts?.limiter?.recordFailure(req.ip);
       return reply.code(401).send(errEnvelope(AUTH_ERROR_CODE, AUTH_ERROR_MSG, req.id));
     }
 
-    if (!(await validateCredential(token))) {
+    // Try Bearer token first, then Basic auth
+    const bearerToken = header.startsWith(BEARER_PREFIX)
+      ? header.slice(BEARER_PREFIX.length)
+      : null;
+
+    const basicUser = header.startsWith(BASIC_PREFIX) ? extractBasicUser(header) : null;
+
+    // For Basic auth, the credential validator receives the raw base64 blob
+    const candidate = bearerToken ?? (header.startsWith(BASIC_PREFIX) ? header.slice(BASIC_PREFIX.length) : null);
+
+    if (candidate === null || candidate.length === 0) {
       opts?.limiter?.recordFailure(req.ip);
       return reply.code(401).send(errEnvelope(AUTH_ERROR_CODE, AUTH_ERROR_MSG, req.id));
+    }
+
+    if (!(await validateCredential(candidate))) {
+      opts?.limiter?.recordFailure(req.ip);
+      return reply.code(401).send(errEnvelope(AUTH_ERROR_CODE, AUTH_ERROR_MSG, req.id));
+    }
+
+    // Attach the authenticated identity for downstream route handlers
+    if (basicUser !== null) {
+      req.authenticatedUser = basicUser;
     }
   };
 }

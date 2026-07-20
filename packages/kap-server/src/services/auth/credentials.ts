@@ -17,6 +17,7 @@
 import { timingSafeEqual } from 'node:crypto';
 
 import type { IAuthTokenService } from './authTokenService';
+import type { UserStore } from './users';
 
 export type CredentialValidator = (candidate: string) => Promise<boolean>;
 
@@ -29,12 +30,45 @@ function timingSafeMatch(candidate: string, expected: string): boolean {
 export function createCredentialValidator(
   authTokenService: IAuthTokenService,
   rpcToken?: string,
+  userStore?: UserStore,
 ): CredentialValidator {
   return async (candidate) => {
     if (await authTokenService.isValid(candidate)) return true;
     if (rpcToken !== undefined && candidate.length > 0 && timingSafeMatch(candidate, rpcToken)) {
       return true;
     }
+    // Multi-user Basic Auth support: candidate is "base64(username:password)"
+    if (userStore !== undefined && candidate.length > 0) {
+      return validateBasicAuth(candidate, userStore);
+    }
     return false;
+  };
+}
+
+async function validateBasicAuth(candidate: string, store: UserStore): Promise<boolean> {
+  const decoded = decodeBasicAuth(candidate);
+  if (decoded === null) return false;
+  const { username, password } = decoded;
+  return store.validate(username, password);
+}
+
+export interface BasicAuthCredentials {
+  readonly username: string;
+  readonly password: string;
+}
+
+/** Decode "base64(username:password)" into { username, password }. Returns null on failure. */
+function decodeBasicAuth(credentials: string): BasicAuthCredentials | null {
+  let decoded: string;
+  try {
+    decoded = Buffer.from(credentials, 'base64').toString('utf-8');
+  } catch {
+    return null;
+  }
+  const colon = decoded.indexOf(':');
+  if (colon <= 0 || colon === decoded.length - 1) return null;
+  return {
+    username: decoded.substring(0, colon),
+    password: decoded.substring(colon + 1),
   };
 }

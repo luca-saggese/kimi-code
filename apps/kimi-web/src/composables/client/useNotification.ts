@@ -15,6 +15,7 @@
 import { ref, type Ref } from 'vue';
 import { i18n } from '../../i18n';
 import { safeGetString, safeSetString, STORAGE_KEYS } from '../../lib/storage';
+import { brand } from '../../brand';
 
 export function shouldNotifyCompletion(
   status: 'idle' | 'aborted',
@@ -124,7 +125,7 @@ function firstText(...values: Array<string | undefined>): string {
 
 export function completionNotificationCopy(sessionTitle: string): NotificationCopy {
   return {
-    title: i18n.global.t('settings.notifyTitle'),
+    title: i18n.global.t('settings.notifyTitle', { brand: brand.productName }),
     body: firstText(sessionTitle, i18n.global.t('settings.notifyFallback')),
   };
 }
@@ -134,7 +135,7 @@ export function questionNotificationCopy(
   questionPreview: string,
 ): NotificationCopy {
   return {
-    title: i18n.global.t('settings.notifyQuestionTitle'),
+    title: i18n.global.t('settings.notifyQuestionTitle', { brand: brand.productName }),
     body: firstText(
       questionPreview,
       sessionTitle,
@@ -148,7 +149,7 @@ export function approvalNotificationCopy(
   toolName: string,
 ): NotificationCopy {
   return {
-    title: i18n.global.t('settings.notifyApprovalTitle'),
+    title: i18n.global.t('settings.notifyApprovalTitle', { brand: brand.productName }),
     body: firstText(
       toolName,
       sessionTitle,
