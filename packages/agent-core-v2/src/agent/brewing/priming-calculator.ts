@@ -34,13 +34,19 @@ const CARB: Record<string, number> = {
   'brett_beer': 2.6, 'mixed_fermentation': 2.6, 'doppelbock': 2.4,
 };
 
-const SUGARS: Record<string, { co2: number; name: string }> = {
-  sucrose: { co2: 0.46, name: 'Saccarosio' },
-  dextrose: { co2: 0.51, name: 'Destrosio' },
-  dme: { co2: 0.37, name: 'DME' },
-  honey: { co2: 0.40, name: 'Miele' },
-  maple_syrup: { co2: 0.38, name: 'Sciroppo d\'acero' },
+const SUGARS: Record<string, { gramsPerLiterPerVolume: number; name: string }> = {
+  sucrose: { gramsPerLiterPerVolume: 4.00, name: 'Saccarosio' },
+  dextrose: { gramsPerLiterPerVolume: 4.40, name: 'Destrosio monoidrato' },
+  dme: { gramsPerLiterPerVolume: 5.90, name: 'DME' },
+  honey: { gramsPerLiterPerVolume: 5.40, name: 'Miele' },
+  maple_syrup: { gramsPerLiterPerVolume: 5.20, name: 'Sciroppo d\'acero' },
 };
+
+function calculateResidualCo2(tempC: number): number {
+  const tempF = tempC * 9 / 5 + 32;
+  const residual = 3.0378 - 0.050062 * tempF + 0.00026555 * tempF ** 2;
+  return Math.max(0, residual);
+}
 
 export class PrimingCalculatorTool implements BuiltinTool<PrimingCalculatorInput> {
   readonly name = 'priming_calculator' as const;
@@ -60,16 +66,15 @@ export class PrimingCalculatorTool implements BuiltinTool<PrimingCalculatorInput
     try {
       let target = args.target_co2_volumes;
       if (target === undefined && args.beer_style) target = CARB[args.beer_style];
-      if (target === undefined) target = 2.4;
-      if (args.packaging === 'keg') target = Math.max(1.8, target - 0.2);
+      target ??= 2.4;
 
       const tempC = args.beer_temperature_c;
-      const residual = Math.max(0, 0.27 * (1 - (tempC - 4) * 0.02));
-      const toAdd = target - residual;
-      if (toAdd <= 0) return Promise.resolve({ output: `CO2 residua sufficiente (${residual.toFixed(2)} vol per ${target} target). Nessuno zucchero necessario.` });
+      const residual = calculateResidualCo2(tempC);
+      const co2ToAdd = target - residual;
+      if (co2ToAdd <= 0) return Promise.resolve({ output: `CO2 residua sufficiente (${residual.toFixed(2)} vol per ${target} target). Nessuno zucchero necessario.` });
 
       const sugar = SUGARS[args.sugar_type ?? 'sucrose'];
-      const gPerL = toAdd / sugar.co2;
+      const gPerL = co2ToAdd * sugar.gramsPerLiterPerVolume;
       const total = gPerL * args.batch_size_liters;
 
       return Promise.resolve({
