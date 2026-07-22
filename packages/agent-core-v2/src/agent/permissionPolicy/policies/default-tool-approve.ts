@@ -23,6 +23,17 @@ const DEFAULT_APPROVE_TOOLS = new Set([
   'SetGoalBudget',
   'UpdateGoal',
   'select_tools',
+  'memory_save',
+  'memory_search',
+  'memory_toggle',
+  'brewing_calculator',
+  'water_profile_calculator',
+  'ibu_calculator',
+  'priming_calculator',
+  'recipe_validator',
+  'inventory_search',
+  'yaml_to_docx',
+  'yaml_to_pdf',
 ]);
 
 export class DefaultToolApprovePermissionPolicyService implements PermissionPolicy {
