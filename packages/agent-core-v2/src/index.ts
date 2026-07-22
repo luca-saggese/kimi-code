@@ -236,6 +236,8 @@ import '#/agent/brewing/yaml-to-pdf';
 import '#/agent/brewing/memory-save';
 import '#/agent/brewing/memory-search';
 import '#/agent/brewing/memory-toggle';
+import '#/agent/brewing/recipe-list';
+import '#/agent/brewing/brewday-log';
 export * from '#/session/agentLifecycle/agentLifecycle';
 export * from '#/session/agentLifecycle/agentLifecycleService';
 export * from '#/session/agentLifecycle/mainAgent';

@@ -34,6 +34,8 @@ const DEFAULT_APPROVE_TOOLS = new Set([
   'inventory_search',
   'yaml_to_docx',
   'yaml_to_pdf',
+  'recipe_list',
+  'brewday_log',
 ]);
 
 export class DefaultToolApprovePermissionPolicyService implements PermissionPolicy {
