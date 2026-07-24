@@ -134,18 +134,18 @@ export const BrewdayLogInputSchema = z.object({
   recipe_name: z.string().optional().describe('Recipe name (required for most actions).'),
   recipe_key: z.string().optional().describe('Recipe key override for file naming (auto-generated from recipe_name if omitted).'),
   recipe_path: z.string().optional().describe('Path to the recipe YAML file (auto-detected from recipe_list if omitted).'),
-  brew_number: z.number().int().optional().describe('Which brew number (auto-incremented for start, required for add_entry/log/summary on existing brews).'),
+  brew_number: z.number().optional().describe('Which brew number (auto-incremented for start, required for add_entry/log/summary on existing brews).'),
   // for start
   batch_size_litres: z.number().optional(),
   target_og: z.number().optional(),
   target_fg: z.number().optional(),
   brew_date: z.string().optional().describe('Brew date (ISO format). Defaults to today.'),
   // for add_entry / log
-  phase: z.enum(['mash', 'boil', 'whirlpool', 'cooling', 'fermentation', 'dry_hop', 'cold_crash', 'bottling', 'kegging', 'tasting', 'measurement', 'other']).optional(),
+  phase: z.string().optional().describe('Phase: mash, boil, whirlpool, cooling, fermentation, dry_hop, cold_crash, bottling, kegging, tasting, measurement, other.'),
   notes: z.string().optional().describe('What happened, observations, measurements.'),
   issues: z.string().optional().describe('What went wrong or unexpected.'),
   improvements: z.string().optional().describe('What to do better next time.'),
-  measurements: z.record(z.string(), z.unknown()).optional().describe('Key-value measurements, e.g. {"og": 1.052, "temp_c": 67, "ph": 5.4, "volume_l": 23}.'),
+  measurements_json: z.string().optional().describe('JSON string of key-value measurements. Example: \'{"og":1.052,"temp_c":67,"ph":5.4}\'.'),
   duration_minutes: z.number().optional().describe('Duration of this phase in minutes.'),
   timestamp: z.string().optional().describe('ISO timestamp for the entry. Defaults to now.'),
   // for summary
@@ -154,8 +154,8 @@ export const BrewdayLogInputSchema = z.object({
   actual_abv: z.number().optional(),
   efficiency_percent: z.number().optional(),
   summary: z.string().optional().describe('Overall summary of the brew session.'),
-  rating: z.number().int().min(1).max(10).optional(),
-  status: z.enum(['planned', 'in_progress', 'completed', 'archived']).optional().describe('Brew status. Default "in_progress" for start, "completed" when summary is set.'),
+  rating: z.number().optional().describe('Rating 1-10.'),
+  status: z.string().optional().describe('Brew status: planned, in_progress, completed, archived. Default "in_progress" for start, "completed" when summary is set.'),
 });
 
 export type BrewdayLogInput = z.infer<typeof BrewdayLogInputSchema>;
@@ -216,7 +216,36 @@ export class BrewdayLogTool implements BuiltinTool<BrewdayLogInput> {
   readonly name = 'brewday_log' as const;
   readonly description =
     'Diario di cotta brassicola. Registra ogni fase della produzione (mash, boil, fermentazione, dry hop, imbottigliamento, ecc.) con misure, note, problemi e miglioramenti. Ogni cotta è collegata a una ricetta. Usalo per tracciare tutto ciò che succede durante una cotta e poterlo consultare in futuro.';
-  readonly parameters: Record<string, unknown> = toInputJsonSchema(BrewdayLogInputSchema);
+  readonly parameters: Record<string, unknown> = {
+    type: 'object',
+    properties: {
+      action: { type: 'string', description: "Action: 'start' (create new brew log), 'add_entry'/'log' (add a timed entry), 'list' (all brew logs for a recipe), 'read' (full log of a specific brew), 'summary' (set final summary/rating), 'delete' (remove a brew log)." },
+      recipe_name: { type: 'string', description: 'Recipe name (required for most actions).' },
+      recipe_key: { type: 'string', description: 'Recipe key for file naming (auto-generated from recipe_name if omitted).' },
+      recipe_path: { type: 'string', description: 'Path to the recipe YAML file.' },
+      brew_number: { type: 'number', description: 'Which brew number (auto-incremented for start).' },
+      batch_size_litres: { type: 'number' },
+      target_og: { type: 'number' },
+      target_fg: { type: 'number' },
+      brew_date: { type: 'string', description: 'Brew date (ISO format). Defaults to today.' },
+      phase: { type: 'string', description: 'Phase: mash, boil, whirlpool, cooling, fermentation, dry_hop, cold_crash, bottling, kegging, tasting, measurement, other.' },
+      notes: { type: 'string', description: 'What happened, observations, measurements.' },
+      issues: { type: 'string', description: 'What went wrong or unexpected.' },
+      improvements: { type: 'string', description: 'What to do better next time.' },
+      measurements_json: { type: 'string', description: 'JSON string of key-value measurements. Example: \'{"og":1.052,"temp_c":67,"ph":5.4}\'.' },
+      duration_minutes: { type: 'number', description: 'Duration of this phase in minutes.' },
+      timestamp: { type: 'string', description: 'ISO timestamp for the entry. Defaults to now.' },
+      actual_og: { type: 'number' },
+      actual_fg: { type: 'number' },
+      actual_abv: { type: 'number' },
+      efficiency_percent: { type: 'number' },
+      summary: { type: 'string', description: 'Overall summary of the brew session.' },
+      rating: { type: 'number', description: 'Rating 1-10.' },
+      status: { type: 'string', description: 'Brew status: planned, in_progress, completed, archived.' },
+    },
+    required: ['action'],
+    additionalProperties: false,
+  };
 
   resolveExecution(args: BrewdayLogInput): ToolExecution {
     const desc = args.action === 'start'
@@ -266,7 +295,7 @@ export class BrewdayLogTool implements BuiltinTool<BrewdayLogInput> {
       target_og: args.target_og,
       target_fg: args.target_fg,
       entries: [],
-      status: args.status ?? 'in_progress',
+      status: (args.status as BrewdayLog['status']) ?? 'in_progress',
       createdAt: now,
       updatedAt: now,
     };
@@ -284,6 +313,19 @@ export class BrewdayLogTool implements BuiltinTool<BrewdayLogInput> {
         `Usa \`brewday_log action:"add_entry" recipe_name:"${args.recipe_name}" ...\` per registrare gli eventi.`,
       ].filter(Boolean).join('\n'),
     });
+  }
+
+  private parseMeasurements(rawJson?: string): Record<string, unknown> | undefined {
+    if (!rawJson) return undefined;
+    try {
+      const parsed = JSON.parse(rawJson);
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // fall through
+    }
+    return undefined;
   }
 
   private handleAddEntry(args: BrewdayLogInput): Promise<ExecutableToolResult> {
@@ -305,22 +347,24 @@ export class BrewdayLogTool implements BuiltinTool<BrewdayLogInput> {
 
     const target = logs[idx]!;
 
+    const measurements = this.parseMeasurements(args.measurements_json);
     const entry: BrewdayEntry = {
       timestamp: args.timestamp ?? new Date().toISOString(),
       phase: args.phase ?? 'other',
-      notes: args.notes,
+      notes: args.notes ?? '',
       issues: args.issues,
       improvements: args.improvements,
       duration_minutes: args.duration_minutes,
-      measurements: args.measurements as Record<string, unknown> | undefined,
+      measurements,
     };
 
     // Auto-update og/fg if provided in measurements
-    const m = args.measurements ?? {};
-    const mOg = m['og'];
-    const mFg = m['fg'];
-    if (typeof mOg === 'number') target.actual_og = mOg;
-    if (typeof mFg === 'number') target.actual_fg = mFg;
+    if (measurements) {
+      const mOg = measurements['og'];
+      const mFg = measurements['fg'];
+      if (typeof mOg === 'number') target.actual_og = mOg;
+      if (typeof mFg === 'number') target.actual_fg = mFg;
+    }
 
     target.entries.push(entry);
     target.updatedAt = new Date().toISOString();
@@ -412,7 +456,7 @@ export class BrewdayLogTool implements BuiltinTool<BrewdayLogInput> {
     if (args.actual_fg) target.actual_fg = args.actual_fg;
     if (args.actual_abv) target.actual_abv = args.actual_abv;
     if (args.efficiency_percent) target.efficiency_percent = args.efficiency_percent;
-    if (args.status) target.status = args.status;
+    if (args.status) target.status = args.status as BrewdayLog['status'];
     // Auto-complete if summary is set and status is still in_progress
     if (args.summary && target.status === 'in_progress') {
       target.status = 'completed';

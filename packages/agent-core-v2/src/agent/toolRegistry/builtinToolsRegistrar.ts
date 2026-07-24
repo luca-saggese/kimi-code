@@ -50,11 +50,17 @@ export class AgentBuiltinToolsRegistrar extends Disposable implements IAgentBuil
         const { ctor, options } = contribution;
         if (options.when !== undefined && !options.when(accessor)) continue;
         const staticArgs = options.staticArgs?.(accessor) ?? [];
-        const tool = instantiationService.createInstance(
-          ctor,
-          ...(staticArgs as []),
-        );
-        this._register(toolRegistry.register(tool, { source: options.source }));
+        try {
+          const tool = instantiationService.createInstance(
+            ctor,
+            ...(staticArgs as []),
+          );
+          this._register(toolRegistry.register(tool, { source: options.source }));
+          //console.debug(`[toolRegistry] registered tool "${tool.name}" (source: ${options.source ?? 'builtin'})`);
+        } catch (error: unknown) {
+          const toolName = (ctor.prototype as { name?: string }).name ?? ctor.name ?? '<unknown>';
+          console.error(`[toolRegistry] failed to register tool "${toolName}":`, error);
+        }
       }
     });
   }

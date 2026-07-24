@@ -169,7 +169,7 @@ function formatRecipeSummary(r: RecipeSummary): string {
 function resolveDir(searchDir: string | undefined): string {
   if (!searchDir) return process.cwd();
   if (searchDir.startsWith('~')) {
-    const home = process.env.HOME ?? process.env.USERPROFILE ?? '/';
+    const home = process.env['HOME'] ?? process.env['USERPROFILE'] ?? '/';
     return join(home, searchDir.slice(1));
   }
   return resolve(searchDir);
@@ -203,7 +203,8 @@ export class RecipeListTool implements BuiltinTool<RecipeListInput> {
 
       let filtered = recipes;
       if (args.filter) {
-        filtered = recipes.filter(r => recipeMatchesFilter(r, args.filter));
+        const f = args.filter;
+        filtered = recipes.filter(r => recipeMatchesFilter(r, f));
         if (filtered.length === 0) {
           return Promise.resolve({ output: `Nessuna ricetta corrisponde al filtro "${args.filter}" (${recipes.length} ricette totali trovate in \`${dir}\`).` });
         }
