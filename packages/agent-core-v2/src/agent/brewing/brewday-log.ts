@@ -29,7 +29,7 @@ import { toInputJsonSchema } from '#/tool/input-schema';
 interface BrewdayEntry {
   timestamp: string;         // ISO 8601
   phase: string;             // mash, boil, whirlpool, cooling, fermentation, dry_hop, cold_crash, bottling, kegging, tasting, other
-  measurements?: Record<string, string | number>;  // es. { og: 1.052, temp_c: 67, ph: 5.4 }
+  measurements?: Record<string, unknown>;  // es. { og: 1.052, temp_c: 67, ph: 5.4 }
   notes: string;             // testo libero
   issues?: string;           // cosa è andato storto
   improvements?: string;     // cosa fare meglio la prossima volta
@@ -134,7 +134,7 @@ export const BrewdayLogInputSchema = z.object({
   recipe_name: z.string().optional().describe('Recipe name (required for most actions).'),
   recipe_key: z.string().optional().describe('Recipe key override for file naming (auto-generated from recipe_name if omitted).'),
   recipe_path: z.string().optional().describe('Path to the recipe YAML file (auto-detected from recipe_list if omitted).'),
-  brew_number: z.number().int().positive().optional().describe('Which brew number (auto-incremented for start, required for add_entry/log/summary on existing brews).'),
+  brew_number: z.number().int().optional().describe('Which brew number (auto-incremented for start, required for add_entry/log/summary on existing brews).'),
   // for start
   batch_size_litres: z.number().optional(),
   target_og: z.number().optional(),
@@ -145,7 +145,7 @@ export const BrewdayLogInputSchema = z.object({
   notes: z.string().optional().describe('What happened, observations, measurements.'),
   issues: z.string().optional().describe('What went wrong or unexpected.'),
   improvements: z.string().optional().describe('What to do better next time.'),
-  measurements: z.record(z.union([z.string(), z.number()])).optional().describe('Key-value measurements, e.g. {"og": 1.052, "temp_c": 67, "ph": 5.4, "volume_l": 23}.'),
+  measurements: z.record(z.string(), z.unknown()).optional().describe('Key-value measurements, e.g. {"og": 1.052, "temp_c": 67, "ph": 5.4, "volume_l": 23}.'),
   duration_minutes: z.number().optional().describe('Duration of this phase in minutes.'),
   timestamp: z.string().optional().describe('ISO timestamp for the entry. Defaults to now.'),
   // for summary
@@ -303,6 +303,8 @@ export class BrewdayLogTool implements BuiltinTool<BrewdayLogInput> {
       return Promise.resolve({ isError: true, output: `Cotta #${brewNumber} non trovata per "${args.recipe_name}". Cotte disponibili: ${logs.map(l => l.brew_number).join(', ')}` });
     }
 
+    const target = logs[idx]!;
+
     const entry: BrewdayEntry = {
       timestamp: args.timestamp ?? new Date().toISOString(),
       phase: args.phase ?? 'other',
@@ -310,16 +312,18 @@ export class BrewdayLogTool implements BuiltinTool<BrewdayLogInput> {
       issues: args.issues,
       improvements: args.improvements,
       duration_minutes: args.duration_minutes,
-      measurements: args.measurements,
+      measurements: args.measurements as Record<string, unknown> | undefined,
     };
 
     // Auto-update og/fg if provided in measurements
     const m = args.measurements ?? {};
-    if (typeof m.og === 'number') logs[idx].actual_og = m.og;
-    if (typeof m.fg === 'number') logs[idx].actual_fg = m.fg;
+    const mOg = m['og'];
+    const mFg = m['fg'];
+    if (typeof mOg === 'number') target.actual_og = mOg;
+    if (typeof mFg === 'number') target.actual_fg = mFg;
 
-    logs[idx].entries.push(entry);
-    logs[idx].updatedAt = new Date().toISOString();
+    target.entries.push(entry);
+    target.updatedAt = new Date().toISOString();
     saveLogFile(recipeKey, logs);
 
     return Promise.resolve({
@@ -400,32 +404,34 @@ export class BrewdayLogTool implements BuiltinTool<BrewdayLogInput> {
       return Promise.resolve({ isError: true, output: `Cotta #${brewNumber} non trovata.` });
     }
 
-    if (args.summary) logs[idx].summary = args.summary;
-    if (args.rating) logs[idx].rating = args.rating;
-    if (args.actual_og) logs[idx].actual_og = args.actual_og;
-    if (args.actual_fg) logs[idx].actual_fg = args.actual_fg;
-    if (args.actual_abv) logs[idx].actual_abv = args.actual_abv;
-    if (args.efficiency_percent) logs[idx].efficiency_percent = args.efficiency_percent;
-    if (args.status) logs[idx].status = args.status;
+    const target = logs[idx]!;
+
+    if (args.summary) target.summary = args.summary;
+    if (args.rating) target.rating = args.rating;
+    if (args.actual_og) target.actual_og = args.actual_og;
+    if (args.actual_fg) target.actual_fg = args.actual_fg;
+    if (args.actual_abv) target.actual_abv = args.actual_abv;
+    if (args.efficiency_percent) target.efficiency_percent = args.efficiency_percent;
+    if (args.status) target.status = args.status;
     // Auto-complete if summary is set and status is still in_progress
-    if (args.summary && logs[idx].status === 'in_progress') {
-      logs[idx].status = 'completed';
+    if (args.summary && target.status === 'in_progress') {
+      target.status = 'completed';
     }
 
-    logs[idx].updatedAt = new Date().toISOString();
+    target.updatedAt = new Date().toISOString();
     saveLogFile(recipeKey, logs);
 
     return Promise.resolve({
       output: [
         `✅ **Riepilogo aggiornato** per Cotta #${brewNumber} di "${args.recipe_name}"`,
-        `📊 Status: ${logs[idx].status}`,
-        logs[idx].rating ? `⭐ Rating: ${logs[idx].rating}/10` : '',
-        logs[idx].actual_og ? `🔬 OG: ${logs[idx].actual_og!.toFixed(3)}` : '',
-        logs[idx].actual_fg ? `🔬 FG: ${logs[idx].actual_fg!.toFixed(3)}` : '',
-        logs[idx].actual_abv ? `🍺 ABV: ${logs[idx].actual_abv}%` : '',
-        logs[idx].efficiency_percent ? `⚙️ Efficienza: ${logs[idx].efficiency_percent}%` : '',
+        `📊 Status: ${target.status}`,
+        target.rating ? `⭐ Rating: ${target.rating}/10` : '',
+        target.actual_og ? `🔬 OG: ${target.actual_og.toFixed(3)}` : '',
+        target.actual_fg ? `🔬 FG: ${target.actual_fg.toFixed(3)}` : '',
+        target.actual_abv ? `🍺 ABV: ${target.actual_abv}%` : '',
+        target.efficiency_percent ? `⚙️ Efficienza: ${target.efficiency_percent}%` : '',
         '',
-        logs[idx].summary ?? '(nessun riepilogo testuale)',
+        target.summary ?? '(nessun riepilogo testuale)',
       ].filter(Boolean).join('\n'),
     });
   }

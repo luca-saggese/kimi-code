@@ -47,13 +47,14 @@ interface RecipeSummary {
 
 function isRecipeYaml(data: Record<string, unknown>): boolean {
   // A recipe must have at least: nome, parametri (with og or batch_size), grist
+  const params = data['parametri'] as Record<string, unknown> | undefined;
   return (
-    typeof data.nome === 'string' &&
-    typeof data.parametri === 'object' &&
-    data.parametri !== null &&
-    (typeof (data.parametri as Record<string, unknown>).og === 'number' ||
-     typeof (data.parametri as Record<string, unknown>).batch_size_litri === 'number') &&
-    (Array.isArray(data.grist) || Array.isArray(data.luppolatura))
+    typeof data['nome'] === 'string' &&
+    typeof params === 'object' &&
+    params !== null &&
+    (typeof params['og'] === 'number' ||
+     typeof params['batch_size_litri'] === 'number') &&
+    (Array.isArray(data['grist']) || Array.isArray(data['luppolatura']))
   );
 }
 
@@ -66,30 +67,30 @@ function parseRecipeYaml(filePath: string): RecipeSummary | null {
 
     if (!isRecipeYaml(d)) return null;
 
-    const params = d.parametri as Record<string, unknown>;
-    const grist = Array.isArray(d.grist) ? d.grist as Array<Record<string, unknown>> : [];
-    const luppolatura = Array.isArray(d.luppolatura) ? d.luppolatura as Array<Record<string, unknown>> : [];
-    const lievito = d.lievito as Record<string, unknown> | undefined;
+    const params = d['parametri'] as Record<string, unknown>;
+    const grist = Array.isArray(d['grist']) ? d['grist'] as Array<Record<string, unknown>> : [];
+    const luppolatura = Array.isArray(d['luppolatura']) ? d['luppolatura'] as Array<Record<string, unknown>> : [];
+    const lievito = d['lievito'] as Record<string, unknown> | undefined;
 
     return {
       path: filePath,
-      nome: String(d.nome ?? 'Sconosciuta'),
-      stile: String(d.stile ?? 'Non specificato'),
+      nome: String(d['nome'] ?? 'Sconosciuta'),
+      stile: String(d['stile'] ?? 'Non specificato'),
       parametri: {
-        batch_size_litri: typeof params.batch_size_litri === 'number' ? params.batch_size_litri : undefined,
-        og: typeof params.og === 'number' ? params.og : undefined,
-        fg: typeof params.fg === 'number' ? params.fg : undefined,
-        abv_percent: typeof params.abv_percent === 'number' ? params.abv_percent : undefined,
-        ibu: typeof params.ibu === 'number' ? params.ibu : undefined,
-        ebc: typeof params.ebc === 'number' ? params.ebc : undefined,
-        impianto: typeof params.impianto === 'string' ? params.impianto : undefined,
+        batch_size_litri: typeof params['batch_size_litri'] === 'number' ? params['batch_size_litri'] : undefined,
+        og: typeof params['og'] === 'number' ? params['og'] : undefined,
+        fg: typeof params['fg'] === 'number' ? params['fg'] : undefined,
+        abv_percent: typeof params['abv_percent'] === 'number' ? params['abv_percent'] : undefined,
+        ibu: typeof params['ibu'] === 'number' ? params['ibu'] : undefined,
+        ebc: typeof params['ebc'] === 'number' ? params['ebc'] : undefined,
+        impianto: typeof params['impianto'] === 'string' ? params['impianto'] : undefined,
       },
       ingredienti_principali: {
-        malti: grist.map(m => String(m.malto ?? '')).filter(Boolean),
-        luppoli: luppolatura.map(h => String(h.varieta ?? '')).filter(Boolean),
-        lievito: lievito?.ceppo ? String(lievito.ceppo) : 'Non specificato',
-        spezie: Array.isArray(d.spezie) ? (d.spezie as Array<Record<string, unknown>>).map(s => String(s.nome ?? '')).filter(Boolean) : undefined,
-        zuccheri: Array.isArray(d.zuccheri) ? (d.zuccheri as Array<Record<string, unknown>>).map(z => String(z.tipo ?? '')).filter(Boolean) : undefined,
+        malti: grist.map(m => String(m['malto'] ?? '')).filter(Boolean),
+        luppoli: luppolatura.map(h => String(h['varieta'] ?? '')).filter(Boolean),
+        lievito: lievito?.['ceppo'] ? String(lievito['ceppo']) : 'Non specificato',
+        spezie: Array.isArray(d['spezie']) ? (d['spezie'] as Array<Record<string, unknown>>).map(s => String(s['nome'] ?? '')).filter(Boolean) : undefined,
+        zuccheri: Array.isArray(d['zuccheri']) ? (d['zuccheri'] as Array<Record<string, unknown>>).map(z => String(z['tipo'] ?? '')).filter(Boolean) : undefined,
       },
     };
   } catch {
