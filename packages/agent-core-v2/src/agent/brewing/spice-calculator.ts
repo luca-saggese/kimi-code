@@ -154,68 +154,76 @@ interface BeerMatrixInput {
     acidity: number;              // 0-1 (0 = not sour, 1 = very sour)
 }
 
-/** Compute per-dimension matrix multipliers. */
+/**
+ * Compute per-dimension matrix factors, separated by mechanism:
+ * - extractionFactor: how the beer medium affects physical extraction
+ * - perceptionAmplification: how the beer amplifies perceived intensity
+ * - maskingFactor: how the beer masks or suppresses perception
+ */
 function computeMatrixFactors(m: BeerMatrixInput) {
     const abv = m.abv;
     const fg = m.finalGravity ?? 1.012;
 
-    // High ABV: increases solubility of apolar compounds, amplifies warm sensation
-    const abvFactor = 1 + Math.max(0, (abv - 4.5) * 0.06);
+    // ABV: increases solubility of apolar compounds → higher extraction
+    const abvExtraction = 1 + Math.max(0, (abv - 4.5) * 0.06);
+    // ABV also amplifies warm/pungent sensation
+    const abvPerceptionWarm = 1 + Math.max(0, (abv - 5) * 0.08);
 
-    // High FG: masks some spices, makes others cloying
-    const fgAbove = Math.max(0, (fg - 1.008) * 1000); // points above 1.008
-    const fgMaskAroma = 1 - fgAbove * 0.008;           // masks delicate aromas
-    const fgBoostBody = 1 + fgAbove * 0.004;            // boosts body spices
+    // FG: masks delicate aromas linearly but clamped to plausible range
+    const fgAbove = Math.max(0, (fg - 1.008) * 1000);
+    const fgMaskAroma = clamp(1 - fgAbove * 0.006, 0.50, 1.05);
 
-    // High IBU: additive bitterness risk
+    // IBU: additive bitterness risk
     const ibuRisk = Math.min(1, (m.ibu ?? 0) / 80);
 
     // Roast: masks delicate aromas, complements warm/resinous spices
-    const roastMask = 1 - m.roastIntensity * 0.4;
+    const roastMask = clamp(1 - m.roastIntensity * 0.4, 0.40, 1.0);
     const roastBoostWarm = 1 + m.roastIntensity * 0.3;
 
-    // Hop aroma: terpene overlap risk
+    // Hop aroma: terpene overlap risk (informational, not dose-changing)
     const hopOverlapRisk = m.hopAromaIntensity * 0.5;
 
-    // Acidity: amplifies freshness/citrus/brightness, can make heat & astringency aggressive
+    // Acidity: amplifies perceived brightness and heat/astringency
     const acidAmplifyBright = 1 + m.acidity * 0.25;
     const acidAmplifyHeat = 1 + m.acidity * 0.30;
     const acidAmplifyAstringency = 1 + m.acidity * 0.20;
 
     return {
-        aroma: abvFactor * fgMaskAroma * roastMask * acidAmplifyBright,
-        pungency: abvFactor * acidAmplifyHeat * roastBoostWarm,
-        bitterness: abvFactor * (1 + ibuRisk * 0.3),
-        astringency: abvFactor * acidAmplifyAstringency * (1 + ibuRisk * 0.15),
-        cooling: abvFactor * acidAmplifyBright,
-        bodyBoost: fgBoostBody,
+        // Extraction: how the beer pulls compounds from the spice
+        extractionFactor: abvExtraction,
+        // Perception amplification per dimension
+        perceptionAmplification: {
+            aroma: acidAmplifyBright,
+            pungency: abvPerceptionWarm * acidAmplifyHeat * roastBoostWarm,
+            bitterness: abvExtraction * (1 + ibuRisk * 0.3),
+            astringency: abvExtraction * acidAmplifyAstringency * (1 + ibuRisk * 0.15),
+            cooling: acidAmplifyBright,
+        },
+        // Masking per dimension: <1 means the beer masks this dimension
+        maskingFactor: {
+            aroma: fgMaskAroma * roastMask,
+            pungency: 1.0,   // pungency is rarely masked
+            bitterness: 1.0,
+            astringency: 1.0,
+            cooling: 1.0,
+        },
         hopOverlapRisk,
         roastMask,
     };
 }
 
-// ── Form adjustments on the sensory profile ──────────────────────────────────
+// ── Freshness / potency adjustment ───────────────────────────────────────────
 
-function adjustProfileForForm(profile: SpiceSensoryProfile, form: SpiceForm): SpiceSensoryProfile {
-    const fp = FORMS[form];
-    return {
-        aroma: profile.aroma * fp.volatileExtractSpeed,
-        pungency: profile.pungency * fp.nonVolatileExtractSpeed,
-        bitterness: profile.bitterness * fp.nonVolatileExtractSpeed,
-        astringency: profile.astringency * fp.nonVolatileExtractSpeed,
-        cooling: profile.cooling * fp.volatileExtractSpeed,
-    };
-}
-
-// ── Freshness adjustment ─────────────────────────────────────────────────────
-
-/** Multiplier for spice that is older or has unknown freshness. */
-function freshnessFactor(freshness: Freshness): number {
+/**
+ * Potency factor: >1 = more potent than reference, <1 = less potent.
+ * A more potent spice needs LESS grams → dose is DIVIDED by potencyFactor.
+ */
+function potencyMultiplier(freshness: Freshness): number {
     switch (freshness) {
-        case 'freshly_cracked': return 1.15;
+        case 'freshly_cracked': return 1.15;  // more potent → lower dose
         case 'recent': return 1.0;
-        case 'older': return 0.75;
-        case 'unknown': return 1.0;  // neutral — don't penalise, but confidence drops
+        case 'older': return 0.75;            // less potent → higher dose
+        case 'unknown': return 1.0;           // neutral, confidence drops
     }
 }
 
@@ -259,7 +267,7 @@ const SPICES: SpiceInfo[] = [
         low: { min: 1, max: 3, recommend: 2 },
         medium: { min: 3, max: 6, recommend: 4.5 },
         high: { min: 6, max: 10, recommend: 8 },
-        keyVolatiles: ['hydroxy-α-sanshool', 'geraniol', 'limonene', 'citronellal'],
+        keyVolatiles: ['geraniol', 'limonene', 'citronellal', 'linalool'],
         keyActives: ['hydroxy-α-sanshool', 'hydroxy-β-sanshool'],
         pungencyProfile: 'immediate',
         oilRangePercent: [1.5, 4.0],
@@ -329,7 +337,7 @@ const SPICES: SpiceInfo[] = [
         low: { min: 0, max: 0, recommend: 0 },
         medium: { min: 0, max: 0, recommend: 0 },
         high: { min: 0, max: 0, recommend: 0 },
-        keyVolatiles: ['capsaicinoids (variable)'],
+        keyVolatiles: ['variable by cultivar'],
         keyActives: ['capsaicin', 'dihydrocapsaicin'],
         pungencyProfile: 'building',
         oilRangePercent: [0.1, 1.0],
@@ -643,93 +651,135 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     // ── 3. Get reference dosage range ──
     const refRange = spice[input.intensity];
     if (isChili && !input.capsaicinoids_mg_per_g && !input.shu) {
-        // Cannot compute without SHU. Return a very wide exploratory interval.
         return buildChiliUnknownResult(spice, input);
     }
 
-    // ── 4. Form adjustment ──
+    // ── 4. Form: normalize vs referenceForm ──
     const form = FORMS[input.form];
+    const refForm = FORMS[spice.referenceForm];
 
-    // Aromatic dose: influenced by volatile extraction speed
-    const aromaFormFactor = form.volatileExtractSpeed;
-    // Pungency dose: influenced by non-volatile extraction speed
-    const pungencyFormFactor = form.nonVolatileExtractSpeed;
+    // Relative extraction: >1 = extracts more than reference → need LESS grams
+    const relativeVolatileExtract = form.volatileExtractSpeed / Math.max(0.01, refForm.volatileExtractSpeed);
+    const relativeNonVolatileExtract = form.nonVolatileExtractSpeed / Math.max(0.01, refForm.nonVolatileExtractSpeed);
 
-    // ── 5. Stage + time + temperature adjustment ──
+    // ── 5. Stage + time + temperature — saturating extraction model ──
     const stage = STAGES[input.stage];
-
-    // Time curve: diminishing returns after ~72 hours
     const timeHours = Math.max(0.5, input.contact_time_hours);
-    const timeFactor = Math.min(1, 0.2 + 0.8 * (1 - Math.exp(-timeHours / 36)));
-
-    // Temperature curve: extraction doubles roughly every 10°C above 20°C
     const tempC = Math.max(0, input.temperature_celsius);
-    const tempFactor = Math.pow(2, (tempC - 20) / 10);
-    const tempClamped = Math.min(4, Math.max(0.1, tempFactor));
 
-    // Aromatic dose formula:
-    // D_aroma = D_ref × (form_volatile / stage_volatileExtract) × timeFactor × tempClamped × freshness × matrix.aroma
-    const aromaStageEfficiency = stage.volatileExtract * (1 - stage.volatileEvaporation);
-    const aromaDoseMultiplier = (aromaFormFactor / Math.max(0.15, aromaStageEfficiency)) * timeFactor * tempClamped;
+    // Temperature-dependent rate constant k (per hour)
+    // Reference k at 20°C: ~0.03/h for volatiles, ~0.02/h for non-volatiles
+    const tempKMultiplier = Math.pow(1.8, (tempC - 20) / 10); // milder than Q10=2
+    const kVolatile = 0.03 * tempKMultiplier;
+    const kNonVolatile = 0.02 * tempKMultiplier;
 
-    // Pungency dose formula:
-    // D_pungency = D_ref × (form_nonvolatile / stage_nonVolatileExtract) × timeFactor × tempClamped_pung × freshness × matrix.pungency
-    const pungencyStageEfficiency = stage.nonVolatileExtract;
-    const pungencyDoseMultiplier = (pungencyFormFactor / Math.max(0.15, pungencyStageEfficiency)) * timeFactor * tempClamped;
+    // Saturating extraction: fraction = 1 - exp(-k * t)
+    const volatileExtractFraction = 1 - Math.exp(-kVolatile * timeHours);
+    const nonVolatileExtractFraction = 1 - Math.exp(-kNonVolatile * timeHours);
 
-    // ── 6. Freshness ──
-    const freshness = freshnessFactor(input.freshness);
+    // Volatile retention: some are lost to evaporation/degradation (stage-dependent)
+    const volatileRetention = stage.volatileEvaporation < 1
+        ? Math.exp(-stage.volatileEvaporation * 3 * volatileExtractFraction)
+        : 0.05;
+
+    // Effective extraction: what actually ends up in the beer
+    const effectiveVolatileExtract = volatileExtractFraction * volatileRetention * stage.volatileExtract;
+    const effectiveNonVolatileExtract = nonVolatileExtractFraction * stage.nonVolatileExtract;
+
+    // Reference extraction (reference form at 20°C, 72h, conditioning stage)
+    const refKVolatile = 0.03;
+    const refKNonVolatile = 0.02;
+    const refTimeHours = 72;
+    const refVolatileFraction = 1 - Math.exp(-refKVolatile * refTimeHours);
+    const refNonVolatileFraction = 1 - Math.exp(-refKNonVolatile * refTimeHours);
+    const refStage = STAGES['conditioning'];
+    const refVolatileRetention = Math.exp(-refStage.volatileEvaporation * 3 * refVolatileFraction);
+    const refEffectiveVolatile = refVolatileFraction * refVolatileRetention * refStage.volatileExtract;
+    const refEffectiveNonVolatile = refNonVolatileFraction * refStage.nonVolatileExtract;
+
+    // Dose = referenceDose / (relativeExtraction × relativeForm)
+    // More extraction → divide → less grams
+    const volatileDoseDivisor = (effectiveVolatileExtract / Math.max(0.01, refEffectiveVolatile)) * relativeVolatileExtract;
+    const nonVolatileDoseDivisor = (effectiveNonVolatileExtract / Math.max(0.01, refEffectiveNonVolatile)) * relativeNonVolatileExtract;
+
+    // ── 6. Potency / freshness ──
+    const potencyFactor = potencyMultiplier(input.freshness);
 
     // ── 7. Matrix factors ──
     const matrix = computeMatrixFactors(input.beer_matrix);
 
-    // ── 8. Blend aroma and pungency multipliers ──
-    // The final multiplier is a weighted blend based on the spice's profile
+    // Extraction factor: ABV affects physical extraction
+    const extractionBoost = matrix.extractionFactor;
+
+    // Masking: roast & FG mask aroma perception → need MORE grams to compensate
+    const aromaMasking = matrix.maskingFactor.aroma;
+    // Perception amplification: >1 means the beer amplifies perceived intensity → need FEWER grams
+    const aromaAmplification = matrix.perceptionAmplification.aroma;
+
+    // ── 8. Blend aroma/pungency dose divisors ──
     const aromaWeight = spice.profile.aroma / (spice.profile.aroma + spice.profile.pungency + 0.01);
     const pungencyWeight = spice.profile.pungency / (spice.profile.aroma + spice.profile.pungency + 0.01);
-    const blendedMultiplier = aromaDoseMultiplier * aromaWeight + pungencyDoseMultiplier * pungencyWeight;
 
-    // ── 9. Apply matrix, freshness, and blend ──
-    const finalMultiplier = blendedMultiplier * freshness;
+    // Aroma dose: reference / (extraction * form * potency * extractionBoost * amplification / masking)
+    const aromaDoseDivisor = volatileDoseDivisor * potencyFactor * extractionBoost * aromaAmplification / Math.max(0.4, aromaMasking);
+    const pungencyDoseDivisor = nonVolatileDoseDivisor * potencyFactor * extractionBoost * matrix.perceptionAmplification.pungency;
+    const blendedDoseDivisor = aromaDoseDivisor * aromaWeight + pungencyDoseDivisor * pungencyWeight;
 
-    // For chili with SHU, adjust the reference range
+    // ── 9. Chili: intensity-aware SHU-based reference ──
     let refMin = refRange.min;
     let refMax = refRange.max;
     let refRec = refRange.recommend;
 
     if (isChili) {
+        const chiliIntensityFactor = { low: 0.4, medium: 1.0, high: 1.8 }[input.intensity];
         if (input.shu) {
-            // Reference: ~50,000 SHU cayenne as medium baseline
-            const shuFactor = 50000 / Math.max(100, input.shu);
-            refMin = 0.5 * shuFactor;
-            refMax = 2.0 * shuFactor;
-            refRec = 1.0 * shuFactor;
+            // Target ~40,000 SHU-equivalent as medium baseline at 1 g/20L whole dried chili
+            const shuScale = 40000 / Math.max(100, input.shu);
+            refRec = 1.0 * shuScale * chiliIntensityFactor;
+            refMin = refRec * 0.6;
+            refMax = refRec * 1.8;
         } else if (input.capsaicinoids_mg_per_g) {
-            // Capsaicinoids in mg/g → approximate SHU: 1 mg/g ≈ 15,000 SHU
             const approxShu = input.capsaicinoids_mg_per_g * 15000;
-            const shuFactor = 50000 / Math.max(1500, approxShu);
-            refMin = 0.5 * shuFactor;
-            refMax = 2.0 * shuFactor;
-            refRec = 1.0 * shuFactor;
+            const shuScale = 40000 / Math.max(1500, approxShu);
+            refRec = 1.0 * shuScale * chiliIntensityFactor;
+            refMin = refRec * 0.6;
+            refMax = refRec * 1.8;
         }
     }
 
-    // ── 10. Scale from 20L reference to actual batch size ──
+    // ── 10. Scale from 20L reference to actual batch size, divide by efficiency ──
     const batchScale = input.batch_liters / 20;
-    const doseRecommendedG = refRec * batchScale * finalMultiplier;
-    const doseMinG = refMin * batchScale * finalMultiplier;
-    const doseMaxG = refMax * batchScale * finalMultiplier;
+    const safeDivisor = Math.max(0.15, blendedDoseDivisor);
+    const doseRecommendedG = refRec * batchScale / safeDivisor;
+    const doseMinG = refMin * batchScale / safeDivisor;
+    const doseMaxG = refMax * batchScale / safeDivisor;
 
-    // ── 11. Compute sensory contributions ──
-    const adjustedProfile = adjustProfileForForm(spice.profile, input.form);
-    const intensityScale = input.intensity === 'low' ? 0.25 : input.intensity === 'medium' ? 0.5 : 0.75;
+    // ── 11. Compute sensory contributions from actual dose ──
+    // effectiveDose_gL = dose × extraction × potency / volume
+    const effectiveVolatileDoseGL = doseRecommendedG * effectiveVolatileExtract * potencyFactor / input.batch_liters;
+    const effectiveNonVolatileDoseGL = doseRecommendedG * effectiveNonVolatileExtract * potencyFactor / input.batch_liters;
 
+    // Half-saturation doses (g/L effective) — the dose where perception reaches 50%
+    const halfSatVolatileGL = 0.5;   // 0.5 g/L effective volatiles = 50% perceived aroma
+    const halfSatNonVolatileGL = 0.3;
+
+    // Hill-type saturation curve: intensity = dose^n / (ec50^n + dose^n)
+    // Use n=1 (Michaelis-Menten) for most; n=2 (sigmoid) for steep-curve spices
+    const hillNAroma = spice.pungencyProfile === 'persistent' ? 2 : 1;
+    const hillNPungency = spice.pungencyProfile === 'building' ? 2 : 1;
+
+    const rawAroma = Math.pow(effectiveVolatileDoseGL, hillNAroma) /
+        (Math.pow(halfSatVolatileGL, hillNAroma) + Math.pow(effectiveVolatileDoseGL, hillNAroma));
+    const rawPungency = Math.pow(effectiveNonVolatileDoseGL, hillNPungency) /
+        (Math.pow(halfSatNonVolatileGL, hillNPungency) + Math.pow(effectiveNonVolatileDoseGL, hillNPungency));
+
+    // Apply perception amplification and masking to the raw intensity
     const contributions = {
-        aroma: clamp01(adjustedProfile.aroma * intensityScale * (stage.volatileExtract * (1 - stage.volatileEvaporation)) * timeFactor * freshness * matrix.aroma),
-        pungency: clamp01(adjustedProfile.pungency * intensityScale * stage.nonVolatileExtract * timeFactor * freshness * matrix.pungency),
-        bitterness: clamp01(adjustedProfile.bitterness * intensityScale * stage.nonVolatileExtract * timeFactor * freshness * matrix.bitterness),
-        astringency: clamp01(adjustedProfile.astringency * intensityScale * stage.nonVolatileExtract * timeFactor * freshness * matrix.astringency),
-        cooling: clamp01(adjustedProfile.cooling * intensityScale * (stage.volatileExtract * (1 - stage.volatileEvaporation)) * timeFactor * freshness * matrix.cooling),
+        aroma: clamp01(rawAroma * spice.profile.aroma * aromaAmplification * aromaMasking),
+        pungency: clamp01(rawPungency * spice.profile.pungency * matrix.perceptionAmplification.pungency),
+        bitterness: clamp01(rawPungency * spice.profile.bitterness * matrix.perceptionAmplification.bitterness),
+        astringency: clamp01(rawPungency * spice.profile.astringency * matrix.perceptionAmplification.astringency),
+        cooling: clamp01(rawAroma * spice.profile.cooling * matrix.perceptionAmplification.cooling),
     };
 
     // ── 12. Confidence ──
@@ -792,9 +842,15 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
             : `${stage.label}: metodo non rimovibile. Iniziare con il 70% della dose consigliata, assaggiare dopo 24 ore, aggiungere il resto se necessario.`;
 
     // ── 14. Adjustment protocol ──
+    const sampleLiters = 0.2;
+    const sampleDoseG = doseRecommendedG * sampleLiters / input.batch_liters;
+    const isMicroscopicDose = sampleDoseG < 0.1;
+
     const adjustmentProtocol = input.stage === 'tincture'
         ? `1. Preparare tintura separata (${spice.name} in alcool neutro 40-50% per 7-14 giorni). 2. Prelevare 100 mL di birra. 3. Aggiungere tintura goccia a goccia, assaggiare. 4. Annotare gocce necessarie. 5. Scalare: (gocce × volume_totale / 100) = gocce totali.`
-        : `1. Preparare un bench trial: prelevare 200 mL di birra. 2. Aggiungere ${(doseRecommendedG * 200 / input.batch_liters).toFixed(1)} g di spezia. 3. Assaggiare dopo ${input.contact_time_hours <= 12 ? input.contact_time_hours : 12} ore. 4. Regolare la dose principale proporzionalmente. 5. Se possibile, usare infusione rimovibile e assaggiare ogni 12-24 ore.`;
+        : isMicroscopicDose
+            ? `1. Preparare una tintura test: 1.00 g di ${spice.name} in 100 mL di alcool neutro (concentrazione ~10 mg/mL). 2. Prelevare 200 mL di birra. 3. Aggiungere ${(sampleDoseG * 1000).toFixed(0)} mg di spezia equivalente = ${(sampleDoseG * 100).toFixed(1)} mL di tintura test. 4. Assaggiare dopo ${input.contact_time_hours <= 12 ? input.contact_time_hours : 12} ore. 5. Regolare la dose principale proporzionalmente. 6. Se possibile, usare infusione rimovibile e assaggiare ogni 12-24 ore.`
+            : `1. Preparare un bench trial: prelevare 200 mL di birra. 2. Aggiungere ${sampleDoseG.toFixed(1)} g di spezia. 3. Assaggiare dopo ${input.contact_time_hours <= 12 ? input.contact_time_hours : 12} ore. 4. Regolare la dose principale proporzionalmente. 5. Se possibile, usare infusione rimovibile e assaggiare ogni 12-24 ore.`;
 
     // ── 15. Risks ──
     const risks = [...spice.risks];
@@ -861,7 +917,6 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
 }
 
 function buildChiliUnknownResult(spice: SpiceInfo, input: SpiceCalcInput): SpiceDoseOutput {
-    const matrix = computeMatrixFactors(input.beer_matrix);
     return {
         doseRecommendedG: 0,
         doseMinG: 0,
