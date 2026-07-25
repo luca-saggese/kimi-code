@@ -100,7 +100,7 @@ const FORMS = {
 
 // ── Methods ──────────────────────────────────────────────────────────────────
 
-const METHODS: Record<string, { label: string; efficiency: number }> = {
+const METHODS_T = {
     secondary: { label: 'In fermentatore (post-fermentazione)', efficiency: 1.0 },
     whirlpool: { label: 'Whirlpool a caldo (80-95°C)', efficiency: 0.70 },
     end_boil: { label: 'Fine bollitura (ultimi 5 min)', efficiency: 0.50 },
@@ -108,6 +108,8 @@ const METHODS: Record<string, { label: string; efficiency: number }> = {
     tincture: { label: 'Tintura alcolica post-fermento', efficiency: 1.0 },
     keg: { label: 'In fusto / serving tank', efficiency: 1.0 },
 };
+
+const METHODS: Record<string, { label: string; efficiency: number }> = METHODS_T;
 
 // ── Style adjustments ────────────────────────────────────────────────────────
 
@@ -124,6 +126,12 @@ const STYLE_ADJ: Record<string, { factor: number }> = {
     other: { factor: 1.00 },
 };
 
+// ── Type aliases (after the objects they refer to) ───────────────────────────
+
+type FruitForm = keyof typeof FORMS;
+type AdditionMethod = keyof typeof METHODS_T;
+type BeerStyle = keyof typeof STYLE_ADJ;
+
 // ── Input schema ─────────────────────────────────────────────────────────────
 
 export const FruitCalculatorInputSchema = z.object({
@@ -139,10 +147,11 @@ export const FruitCalculatorInputSchema = z.object({
     tincture_ml_per_g: z.number().positive().default(1.3).describe('mL alcool per g di liofilizzato.'),
     /** Other fruits, each with its own name, fresh-equivalent kg, and addition method. */
     other_fruits: z.array(z.object({
-        fruit_name: z.string(),
+        fruit_name: z.string().trim().min(1),
         fresh_equivalent_kg: z.number().positive(),
+        fruit_form: z.enum(['fresh', 'puree', 'juice', 'concentrate', 'lyophilized', 'dried']).default('fresh'),
         addition_method: z.enum(['secondary', 'whirlpool', 'end_boil', 'mash', 'keg']).default('secondary'),
-    })).default([]).describe('Altri frutti già presenti, ciascuno con nome, kg freschi eq. e metodo di aggiunta.'),
+    })).default([]).describe('Altri frutti già presenti, ciascuno con nome, kg freschi eq., formato e metodo di aggiunta.'),
     show_details: z.boolean().default(true),
 }).superRefine((input, ctx) => {
     // Tincture only works with dried/lyophilized substrates
@@ -187,7 +196,12 @@ function findFruit(raw: string): FruitInfo | undefined {
  * Uses fruit.typicalBrix / productBrix for concentrate.
  * Uses solids ratio for lyophilized (4% residual moisture) and dried (15%).
  */
-function toProductKg(freshKg: number, fruit: FruitInfo, formKey: string): number {
+function toProductKg(freshKg: number, fruit: FruitInfo, formKey: FruitForm): number {
+    if (formKey === 'concentrate' && fruit.typicalBrix >= 65) {
+        throw new Error(
+            `Il concentrato 65 °Brix non è applicabile a ${fruit.name}: il prodotto di partenza è già circa ${fruit.typicalBrix} °Brix.`,
+        );
+    }
     switch (formKey) {
         case 'fresh':
         case 'puree':
@@ -221,7 +235,7 @@ function freshEquivalentSugarGrams(freshKg: number, fruit: FruitInfo): number {
 }
 
 /** Water contributed by the ACTUAL product (kg). */
-function productWaterKg(productKg: number, fruit: FruitInfo, formKey: string): number {
+function productWaterKg(productKg: number, fruit: FruitInfo, formKey: FruitForm): number {
     switch (formKey) {
         case 'fresh':
         case 'puree':
@@ -251,7 +265,7 @@ interface CalcResult {
     otherReduction: number;
     sugarGrams: number;
     waterLiters: number;
-    form: string;
+    form: FruitForm;
     methodEfficiency: number;
     styleFactor: number;
     initialAbv: number | undefined;
@@ -269,15 +283,16 @@ function compute(input: FruitCalculatorInput): CalcResult {
     const ambiguousMatches = matches.length > 1 ? matches.slice(1).map(f => f.name) : [];
 
     const intensity = INTENSITIES.find(i => i.label.toLowerCase() === input.intensity)!;
-    const method = METHODS[input.addition_method]!;
-    const style = STYLE_ADJ[input.beer_style]!;
+    const method = METHODS[input.addition_method as AdditionMethod]!;
+    const style = STYLE_ADJ[input.beer_style as BeerStyle]!;
 
-    // Scale base intensity by fruit potency, style, and method efficiency
-    const targetIntensityMin = intensity.minGL * fruit.factor * style.factor / method.efficiency;
-    const targetIntensityMax = intensity.maxGL * fruit.factor * style.factor / method.efficiency;
+    // Reference-scale midpoint for main fruit (before other fruits)
+    const rawMidMainGL = intensity.midGL * fruit.factor * style.factor / method.efficiency;
 
-    // Compute sensory contribution of other fruits (each with its own potency)
+    // Compute sensory contribution of other fruits + accumulate their sugar/water
     let totalOtherReferenceGL = 0;
+    let otherSugarGrams = 0;
+    let otherWaterLiters = 0;
     for (const other of input.other_fruits) {
         const otherMatches = findAllMatches(other.fruit_name);
         if (otherMatches.length === 0) {
@@ -287,9 +302,13 @@ function compute(input: FruitCalculatorInput): CalcResult {
             throw new Error(`Altro frutto "${other.fruit_name}" ambiguo. Possibili: ${otherMatches.map(f => f.name).join(', ')}. Specifica il nome esatto.`);
         }
         const otherFruit = otherMatches[0]!;
-        const otherMethod = METHODS[other.addition_method]!;
+        const otherMethod = METHODS[other.addition_method as AdditionMethod]!;
         const otherGL = (other.fresh_equivalent_kg * 1000) / input.batch_size_liters;
         totalOtherReferenceGL += otherGL * otherMethod.efficiency / otherFruit.factor / style.factor;
+        // Accumulate sugar & water from other fruits for ABV estimation
+        otherSugarGrams += freshEquivalentSugarGrams(other.fresh_equivalent_kg, otherFruit);
+        const otherProdKg = toProductKg(other.fresh_equivalent_kg, otherFruit, other.fruit_form as FruitForm);
+        otherWaterLiters += productWaterKg(otherProdKg, otherFruit, other.fruit_form as FruitForm);
     }
 
     const remainingMinReferenceGL = Math.max(
@@ -316,20 +335,24 @@ function compute(input: FruitCalculatorInput): CalcResult {
 
     const finalMid = (finalMin + finalMax) / 2;
 
-    const otherReduction = intensity.midGL > 0 ? (intensity.midGL - finalMid) / intensity.midGL : 0;
+    // otherReduction: same-scale comparison (main fruit g/L before vs after other fruits)
+    const otherReduction = rawMidMainGL > 0
+        ? Math.min(1, Math.max(0, 1 - finalMid / rawMidMainGL))
+        : 0;
 
     const midFreshKg = (finalMid * input.batch_size_liters) / 1000;
-    const midProductKg = toProductKg(midFreshKg, fruit, input.fruit_form);
-    // Sugar from fresh equivalent (conserved across forms)
-    const sugarGrams = freshEquivalentSugarGrams(midFreshKg, fruit);
-    const waterLiters = productWaterKg(midProductKg, fruit, input.fruit_form);
+    const midProductKg = toProductKg(midFreshKg, fruit, input.fruit_form as FruitForm);
+    const mainSugarGrams = freshEquivalentSugarGrams(midFreshKg, fruit);
+    const mainWaterLiters = productWaterKg(midProductKg, fruit, input.fruit_form as FruitForm);
+    const totalSugarGrams = mainSugarGrams + otherSugarGrams;
+    const totalWaterLiters = mainWaterLiters + otherWaterLiters;
 
     return {
         fruit, intensityLabel: intensity.label,
         rangeMinGL: finalMin, rangeMaxGL: finalMax,
         midFreshGL: finalMid, midFreshKg, midProductKg,
-        otherReduction, sugarGrams, waterLiters,
-        form: input.fruit_form,
+        otherReduction, sugarGrams: totalSugarGrams, waterLiters: totalWaterLiters,
+        form: input.fruit_form as FruitForm,
         methodEfficiency: method.efficiency, styleFactor: style.factor,
         initialAbv: input.initial_abv,
         tinctureAlcoholAbv: input.tincture_alcohol_abv,
@@ -355,7 +378,7 @@ function formatResults(input: FruitCalculatorInput): string {
 
     const calc = compute(input);
     const formLabel = FORMS[calc.form].label;
-    const methodLabel = METHODS[input.addition_method].label;
+    const methodLabel = METHODS[input.addition_method as AdditionMethod]!.label;
 
     // ── Parameters ──
     lines.push('## 📊 Parametri');
@@ -402,7 +425,7 @@ function formatResults(input: FruitCalculatorInput): string {
     lines.push('|---|---|');
     for (const [key, fi] of Object.entries(FORMS)) {
         if (key === calc.form) continue;
-        const qty = toProductKg(calc.midFreshKg, calc.fruit, key);
+        const qty = toProductKg(calc.midFreshKg, calc.fruit, key as FruitForm);
         lines.push(`| ${fi.label} | ${qty.toFixed(2)} kg |`);
     }
     lines.push('');
@@ -427,15 +450,27 @@ function formatResults(input: FruitCalculatorInput): string {
     if (input.show_details) {
         const sugarG = calc.sugarGrams;
 
-        // Recovery fractions: not all sugar is extracted, not all is fermentable, not all ferments
-        const sugarRecoveryFraction = 0.85;
+        // Recovery fractions: vary by form and method
+        function sugarRecoveryFor(fm: FruitForm, am: AdditionMethod): number {
+            if (fm === 'juice' || fm === 'concentrate') return 0.98;
+            if (am === 'tincture') return 0.90;
+            return 0.85;
+        }
+        function waterRecoveryFor(fm: FruitForm): number {
+            if (fm === 'juice' || fm === 'concentrate') return 0.98;
+            if (fm === 'puree') return 0.90;
+            if (fm === 'lyophilized' || fm === 'dried') return 0.0;
+            return 0.75;
+        }
+
+        const mainRecovery = sugarRecoveryFor(calc.form, input.addition_method as AdditionMethod);
         const fermentableFraction = 0.95;
         const fermentationYieldFraction = 0.95;
 
-        // Fruit ethanol potential (realistic estimate)
-        const fruitEthanolL = sugarG * sugarRecoveryFraction * fermentableFraction * fermentationYieldFraction * 0.51 / 789;
+        // Fruit ethanol from ALL fruits (sugarG already includes others)
+        const fruitEthanolL = sugarG * mainRecovery * fermentableFraction * fermentationYieldFraction * 0.51 / 789;
 
-        // Tincture ethanol (only when addition_method is 'tincture')
+        // Tincture ethanol
         let tinctureEthanolL = 0;
         let tinctureVolumeL = 0;
         if (input.addition_method === 'tincture') {
@@ -447,11 +482,15 @@ function formatResults(input: FruitCalculatorInput): string {
             tinctureEthanolL = alcMl / 1000 * tinctureRecoveryFraction * calc.tinctureAlcoholAbv;
         }
 
-        // Initial beer ethanol
+        // Initial beer ethanol: ABV after other fruits, before main fruit
         const hasInitialAbv = calc.initialAbv !== undefined;
         const initialEthanolL = hasInitialAbv ? input.batch_size_liters * (calc.initialAbv! / 100) : 0;
 
-        const finalVolumeL = input.batch_size_liters + calc.waterLiters + tinctureVolumeL;
+        // Water volume: apply recovery fraction
+        const mainWaterRecovery = waterRecoveryFor(calc.form);
+        const transferredWaterL = calc.waterLiters * mainWaterRecovery;
+
+        const finalVolumeL = input.batch_size_liters + transferredWaterL + tinctureVolumeL;
         const totalEthanolL = initialEthanolL + fruitEthanolL + tinctureEthanolL;
         const finalAbv = finalVolumeL > 0 ? (totalEthanolL / finalVolumeL) * 100 : 0;
         const abvDelta = hasInitialAbv ? finalAbv - calc.initialAbv! : undefined;
@@ -460,17 +499,17 @@ function formatResults(input: FruitCalculatorInput): string {
         lines.push('');
         lines.push('| Parametro | Valore |');
         lines.push('|---|---|');
-        lines.push(`| Zuccheri aggiunti (dal frutto) | ~${sugarG.toFixed(0)} g`);
-        lines.push(`| Potenziale alcolico (zuccheri frutto) | ~+${(fruitEthanolL / finalVolumeL * 100).toFixed(1)}% ABV`);
+        lines.push(`| Zuccheri totali aggiunti (tutti i frutti) | ~${sugarG.toFixed(0)} g`);
+        lines.push(`| Potenziale alcolico (recupero zuccheri ~${(mainRecovery * 100).toFixed(0)}%) | ~+${(fruitEthanolL / finalVolumeL * 100).toFixed(1)}% ABV`);
         if (tinctureVolumeL > 0) {
-            lines.push(`| Alcool della tintura | ${(tinctureVolumeL * 1000).toFixed(0)} mL al ${(calc.tinctureAlcoholAbv * 100).toFixed(0)}% → ~+${(tinctureEthanolL / finalVolumeL * 100).toFixed(1)}% ABV`);
+            lines.push(`| Alcool tintura | ${(tinctureVolumeL * 1000).toFixed(0)} mL al ${(calc.tinctureAlcoholAbv * 100).toFixed(0)}% → ~+${(tinctureEthanolL / finalVolumeL * 100).toFixed(1)}% ABV`);
         }
         if (hasInitialAbv) {
-            lines.push(`| ABV iniziale | ${calc.initialAbv!.toFixed(1)}%`);
+            lines.push(`| ABV dopo altri frutti (prima del frutto principale) | ${calc.initialAbv!.toFixed(1)}%`);
             lines.push(`| ABV finale stimato | **${finalAbv.toFixed(1)}%** (${abvDelta! >= 0 ? '+' : ''}${abvDelta!.toFixed(1)}%)`);
         }
         if (calc.waterLiters > 0.05) {
-            lines.push(`| Acqua dal prodotto | ~${calc.waterLiters.toFixed(1)} L (contenuta nel prodotto, non necessariamente tutta nella birra confezionata)`);
+            lines.push(`| Acqua dal prodotto | ~${calc.waterLiters.toFixed(1)} L teorica → ~${transferredWaterL.toFixed(1)} L stimata nella birra (recupero ~${(mainWaterRecovery * 100).toFixed(0)}%)`);
         } else {
             lines.push('| Acqua dal prodotto | Trascurabile');
         }
@@ -508,7 +547,7 @@ function formatResults(input: FruitCalculatorInput): string {
         for (const other of calc.otherFruits) {
             const of = findFruit(other.fruit_name);
             if (!of) continue;
-            const om = METHODS[other.addition_method];
+            const om = METHODS[other.addition_method as AdditionMethod]!;
             const ogl = (other.fresh_equivalent_kg * 1000) / input.batch_size_liters;
             otherContrib += ogl * om.efficiency / of.factor / calc.styleFactor;
         }
@@ -537,16 +576,17 @@ const FRUIT_CALCULATOR_PARAMETERS: Record<string, unknown> = {
         fruit_form: { type: 'string', enum: ['fresh', 'puree', 'juice', 'concentrate', 'lyophilized', 'dried'], default: 'fresh' },
         addition_method: { type: 'string', enum: ['secondary', 'whirlpool', 'end_boil', 'mash', 'tincture', 'keg'], default: 'secondary' },
         beer_style: { type: 'string', enum: ['sour', 'ipa', 'stout', 'wheat', 'blonde', 'saison', 'belgian', 'lager', 'neipa', 'other'], default: 'other' },
-        initial_abv: { type: 'number', minimum: 0, maximum: 20, description: 'ABV iniziale della birra (opzionale, per stima ABV finale).' },
+        initial_abv: { type: 'number', minimum: 0, maximum: 20, description: 'ABV della birra DOPO gli altri frutti, PRIMA del frutto principale (opzionale).' },
         tincture_alcohol_abv: { type: 'number', minimum: 0.4, maximum: 0.96, default: 0.95, description: 'Titolo alcool per tintura (es. 0.95 per 95°).' },
-        tincture_ml_per_g: { type: 'number', exclusiveMinimum: 0, default: 1.3, description: 'mL alcool per g di liofilizzato.' },
+        tincture_ml_per_g: { type: 'number', exclusiveMinimum: 0, default: 1.3, description: 'mL alcool per g di substrato secco.' },
         other_fruits: {
             type: 'array',
             items: {
                 type: 'object',
                 properties: {
-                    fruit_name: { type: 'string' },
+                    fruit_name: { type: 'string', minLength: 1 },
                     fresh_equivalent_kg: { type: 'number', exclusiveMinimum: 0 },
+                    fruit_form: { type: 'string', enum: ['fresh', 'puree', 'juice', 'concentrate', 'lyophilized', 'dried'], default: 'fresh' },
                     addition_method: { type: 'string', enum: ['secondary', 'whirlpool', 'end_boil', 'mash', 'keg'], default: 'secondary' },
                 },
                 required: ['fruit_name', 'fresh_equivalent_kg'],
