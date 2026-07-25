@@ -20,7 +20,17 @@ const MALT_POTENTIAL: Record<string, number> = {
   'crystal malt 60l': 270, 'crystal malt 120l': 260,
   'chocolate malt': 230, 'black patent': 220, 'roasted barley': 210,
   'flaked oats': 275, 'flaked wheat': 300, 'flaked barley': 285,
+  'fiocchi d\'orzo': 285, 'fiocchi d\'avena': 275, 'fiocchi di frumento': 300,
   'corn (flaked)': 320, 'rice (flaked)': 320,
+  // Specialty / crystal malts
+  'caramunich': 285, 'caramunich malt': 285,
+  'caramel 300': 250, 'caramel 300 malt': 250,
+  'carafa special iii': 220, 'carafa special iii malt': 220,
+  'carafa speciale iii': 220,
+  'carapils': 280, 'carapils malt': 280,
+  'caravienne': 285, 'caravienne malt': 285,
+  'carared': 275, 'carared malt': 275,
+  'carahell': 290, 'carahell malt': 290,
 };
 
 const DEFAULT_RATES: Record<string, number> = { ale: 0.75, hybrid: 1.0, lager: 1.5 };
