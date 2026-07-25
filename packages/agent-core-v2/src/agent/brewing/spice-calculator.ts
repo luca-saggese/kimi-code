@@ -21,6 +21,8 @@ import { z } from 'zod';
 import type { BuiltinTool, ToolExecution } from '#/tool/toolContract';
 import { registerTool } from '#/agent/toolRegistry/toolContribution';
 
+type DoseUnit = 'g' | 'ml';
+
 // ── Sensory profile ──────────────────────────────────────────────────────────
 
 interface SpiceSensoryProfile {
@@ -39,10 +41,17 @@ interface SpiceSensoryProfile {
 // ── Spice database ───────────────────────────────────────────────────────────
 
 interface SpiceDosageRange {
-    /** Grams per 20L, for the reference form and method. */
+    /** Quantity per 20L, for the reference form and method. Unit in grams or mL. */
     min: number;
     max: number;
     recommend: number;
+}
+
+interface ExtractionCalibration {
+    /** Multiplier for volatile rate constant k (default 1.0). */
+    volatileRateMultiplier: number;
+    /** Multiplier for non-volatile rate constant k (default 1.0). */
+    nonVolatileRateMultiplier: number;
 }
 
 interface SpiceInfo {
@@ -53,20 +62,26 @@ interface SpiceInfo {
     category: 'spice' | 'peel' | 'cocoa' | 'coffee' | 'tea' | 'herb' | 'wood';
     /** Default reference form for dosage ranges. */
     referenceForm: SpiceForm;
+    /** Unit for dosage ranges: g (most) or ml (cold brew). */
+    doseUnit: DoseUnit;
     /** Sensory vector. */
     profile: SpiceSensoryProfile;
-    /** Empirical dosage range per intensity level (g per 20L, reference form). */
+    /** Empirical dosage range per intensity level (per 20L, reference form). */
     low: SpiceDosageRange;
     medium: SpiceDosageRange;
     high: SpiceDosageRange;
+    /** Per-ingredient extraction rate calibration. */
+    extraction: ExtractionCalibration;
     /** Key volatile compounds (for interaction matching). */
     keyVolatiles: string[];
     /** Key non-volatile active compounds. */
     keyActives: string[];
-    /** Does pungency fade quickly or build over time? */
-    pungencyProfile: 'immediate' | 'building' | 'persistent';
+    /** Perception curve profile. */
+    perceptionProfile: 'immediate' | 'building' | 'persistent';
     /** Rough essential-oil range (% of dry weight) — for freshness modeling. */
     oilRangePercent?: [number, number];
+    /** Lipid/fat range (% of dry weight) — for cocoa/coffee. */
+    fatRangePercent?: [number, number];
     /** Known risks and pitfalls. */
     risks: string[];
     /** Special handling notes. */
@@ -242,7 +257,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 16, max: 30, recommend: 22 },
         keyVolatiles: ['linalool', 'α-pinene', 'γ-terpinene', 'camphor'],
         keyActives: ['linalool', 'geranyl acetate'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [0.18, 1.40],
         risks: ['Profilo saponoso/detergente se sovradosato con agrumi', 'Variabilità enorme tra lotti (olio 0.18-1.40%)'],
         notes: 'Schiacciare sempre prima dell\'uso. Le varietà indiane sono più agrumate, quelle europee più floreali.',
@@ -256,7 +271,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 6, max: 10, recommend: 8 },
         keyVolatiles: ['β-caryophyllene', 'limonene', 'α-pinene', 'β-pinene', 'δ-3-carene'],
         keyActives: ['piperine'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [1.0, 3.5],
         risks: ['Piperina 2-9%: due pepi uguali in g/L possono essere molto diversi', 'Sovrapposizione terpenica con luppoli resinosi/agrumati', 'Nota legnosa oltre 7 giorni di contatto'],
         notes: 'Spezzare fresco prima dell\'uso. Tellicherry e Sarawak hanno profili molto diversi. Per dry-spice, rimuovere entro 5-7 giorni.',
@@ -270,7 +285,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 6, max: 10, recommend: 8 },
         keyVolatiles: ['geraniol', 'limonene', 'citronellal', 'linalool'],
         keyActives: ['hydroxy-α-sanshool', 'hydroxy-β-sanshool'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [1.5, 4.0],
         risks: ['Effetto anestetizzante/tingling cumulativo con altre spezie pungenti', 'Sapore metallico se sovradosato'],
         notes: 'Aggiunge un effetto "buzz" unico. Si sposa bene con agrumi e coriandolo. Rimuovere dopo 3-5 giorni.',
@@ -286,7 +301,7 @@ const SPICES: SpiceInfo[] = [
         keyActives: ['cinnamaldehyde', 'coumarin'],
         risks: ['La cannella Cassia contiene cumarina (tossicità epatica ad alte dosi). Preferire Ceylon per dosaggi alti.', 'Astringenza fastidiosa oltre 10 g/20L in stecca', 'Può dominare tutto oltre i 15 g/20L'],
         notes: 'Usare stecche intere in infusione, rimuovere dopo 3-5 giorni. La polvere è difficile da rimuovere e torbida.',
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
     },
     {
         id: 'clove', name: 'Chiodo di garofano', aliases: ['chiodi di garofano', 'chiodo', 'clove', 'cloves'], category: 'spice',
@@ -297,7 +312,8 @@ const SPICES: SpiceInfo[] = [
         high: { min: 1.2, max: 2.0, recommend: 1.5 },
         keyVolatiles: ['eugenol', 'β-caryophyllene', 'eugenyl acetate'],
         keyActives: ['eugenol'],
-        pungencyProfile: 'persistent',
+        perceptionProfile: 'persistent',
+        doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [14, 20],
         risks: ['CURVA RIPIDA: la distanza tra riconoscibile e dominante è minuscola', 'Può anestetizzare il palato mascherando altre spezie', 'Eugenolo dominante: copre aromi delicati'],
         notes: 'Dosare con estrema cautela. Per 20L, iniziare con 2-3 chiodi, assaggiare dopo 24 ore.',
@@ -311,7 +327,8 @@ const SPICES: SpiceInfo[] = [
         high: { min: 4, max: 8, recommend: 6 },
         keyVolatiles: ['anethole', 'estragole', 'limonene', 'linalool'],
         keyActives: ['anethole'],
-        pungencyProfile: 'building',
+        perceptionProfile: 'building',
+        doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [5, 9],
         risks: ['CURVA RIPIDA come il chiodo di garofano', 'L\'anetolo è molto persistente e può coprire tutto', 'Sapore medicinale se sovradosato'],
         notes: '1-2 stelle per 20L come punto di partenza. Aggiungere in infusione rimovibile.',
@@ -325,7 +342,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 60, max: 120, recommend: 90 },
         keyVolatiles: ['zingiberene', 'β-sesquiphellandrene', 'α-curcumene', 'citral'],
         keyActives: ['gingerol', 'shogaol', 'zingerone'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [0.5, 3.0],
         risks: ['Pungenza cumulativa con pepe/peperoncino', 'Il fresco e il secco hanno profili molto diversi (gingerol vs shogaol)', 'Nota terrosa oltre 10 giorni di contatto'],
         notes: 'Fresco: sbucciare e affettare sottile. Secco in polvere: ~1/4 del peso fresco. Per dry-spice, rimuovere entro 5-7 giorni.',
@@ -339,7 +356,8 @@ const SPICES: SpiceInfo[] = [
         high: { min: 0, max: 0, recommend: 0 },
         keyVolatiles: ['variable by cultivar'],
         keyActives: ['capsaicin', 'dihydrocapsaicin'],
-        pungencyProfile: 'building',
+        perceptionProfile: 'building',
+        doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [0.1, 1.0],
         risks: ['IMPOSSIBILE DOSARE SENZA SHU O VARIETÀ. Restituisce intervallo ampio e incerto.', 'Pungenza cumulativa con zenzero e pepe nero', 'La capsaicina è liposolubile: birra più alcolica = estrazione più efficiente'],
         notes: 'SENZA SHU o varietà il calcolo è puramente indicativo. Fornire capsaicinoids_mg_per_g o SHU per stima utile. Ancho/pasilla = poco piccante, habanero = estremamente piccante.',
@@ -353,7 +371,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 7, max: 12, recommend: 9 },
         keyVolatiles: ['1,8-cineole', 'α-terpinyl acetate', 'limonene', 'linalool'],
         keyActives: ['1,8-cineole'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [2.5, 8.0],
         risks: ['Può diventare medicinale/farmaceutico a dosi alte', 'L\'1,8-cineolo è dominante e può stancare'],
         notes: 'Schiacciare i baccelli, usare solo i semi. Aggiungere a whirlpool o in infusione post-fermento.',
@@ -367,7 +385,8 @@ const SPICES: SpiceInfo[] = [
         high: { min: 5, max: 10, recommend: 7 },
         keyVolatiles: ['myristicin', 'sabinene', 'α-pinene', 'β-pinene', 'terpinen-4-ol'],
         keyActives: ['myristicin', 'elemicin'],
-        pungencyProfile: 'building',
+        perceptionProfile: 'building',
+        doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [5, 15],
         risks: ['La miristicina ha effetti psicotropi a dosi molto alte (>>10g)', 'Grattugiare fresco: la polvere pre-macinata perde aroma in giorni'],
         notes: 'Grattugiare al momento. Microplane o grattugia fine. In infusione, rimuovere dopo 3-5 giorni.',
@@ -381,7 +400,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 4, max: 8, recommend: 6 },
         keyVolatiles: ['myristicin', 'α-pinene', 'sabinene', 'terpinen-4-ol'],
         keyActives: ['myristicin'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [4, 12],
         risks: ['Più delicato della noce moscata ma simile profilo di rischio', 'Può dare note legnose persistenti'],
         notes: 'Aroma più fine e floreale della noce moscata. Si sposa bene con birre chiare e speziate.',
@@ -395,7 +414,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 4, max: 8, recommend: 6 },
         keyVolatiles: ['vanillin', '4-hydroxybenzaldehyde'],
         keyActives: ['vanillin'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [1.5, 3.5],
         risks: ['L\'estratto artificiale ha profilo piatto vs bacca intera', 'Aroma mascherato da malti tostati e luppoli intensi'],
         notes: 'Bacca intera: incidere longitudinalmente, infusione 7-14 giorni. Estratto: usare poche gocce, assaggiare. Tintura fatta in casa: 2 bacche in 50 mL alcool per 2 settimane.',
@@ -409,7 +428,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 12, max: 20, recommend: 16 },
         keyVolatiles: ['anethole', 'estragole', 'fenchone', 'α-pinene'],
         keyActives: ['anethole'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [1.5, 6.0],
         risks: ['L\'anetolo è dominante e persistente', 'Sapore medicinale se sovradosato'],
         notes: 'Schiacciare leggermente. Si sposa bene con coriandolo in Witbier e Saison.',
@@ -423,7 +442,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 7, max: 12, recommend: 9 },
         keyVolatiles: ['β-caryophyllene', 'limonene', 'α-pinene', 'α-humulene'],
         keyActives: ['paradol', 'gingerol', 'shogaol'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [0.5, 2.0],
         risks: ['Pungenza cumulativa', 'Può dominare birre delicate'],
         notes: 'Sapore tra pepe e zenzero con note agrumate. Ottimo in Saison e Belgian ale.',
@@ -437,7 +456,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 7, max: 12, recommend: 9 },
         keyVolatiles: ['eugenol', 'β-caryophyllene', 'methyl eugenol', 'cineole'],
         keyActives: ['eugenol'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [2.5, 4.5],
         risks: ['Ricorda cannella + chiodo + noce moscata: può creare ridondanza con queste spezie'],
         notes: 'Aroma complesso "tuttospezie". Ottimo in birre natalizie e stout speziate.',
@@ -451,7 +470,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 20, max: 40, recommend: 30 },
         keyVolatiles: ['limonene', 'citral', 'linalool', 'α-pinene'],
         keyActives: ['limonene'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [0.5, 3.0],
         risks: ['Profilo saponoso/detergente se sovradosata con coriandolo', 'L\'amaro della scorza può sommarsi agli IBU'],
         notes: 'Solo scorza, no albedo (parte bianca = amaro sgradevole). Se fresca, ~2x il peso del secco. Curacao = più aromatica, Valencia = più dolce.',
@@ -465,7 +484,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 20, max: 40, recommend: 30 },
         keyVolatiles: ['limonene', 'citral', 'β-pinene', 'γ-terpinene'],
         keyActives: ['limonene', 'citral'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [0.5, 2.5],
         risks: ['Aroma meno persistente dell\'arancia in birra', 'Simile rischio saponoso con coriandolo'],
         notes: 'Solo scorza, no albedo. Eccellente in Witbier con coriandolo. Fresca ~2x il secco.',
@@ -479,7 +498,8 @@ const SPICES: SpiceInfo[] = [
         high: { min: 5, max: 10, recommend: 7 },
         keyVolatiles: ['β-caryophyllene', 'limonene', 'sabinene', 'α-pinene'],
         keyActives: ['piperine', 'piperlongumine'],
-        pungencyProfile: 'building',
+        perceptionProfile: 'building',
+        doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [1.0, 3.0],
         risks: ['Più potente del pepe nero: CURVA RIPIDA', 'Pungenza che si accumula lentamente ma intensamente'],
         notes: 'Usare con cautela. Più complesso e persistente del pepe nero. Ottimo in stout e porter.',
@@ -493,7 +513,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 2, max: 4, recommend: 3 },
         keyVolatiles: ['coumarin', 'dihydrocoumarin'],
         keyActives: ['coumarin'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [1.0, 3.0],
         risks: ['Contiene cumarina (epatotossica ad alte dosi). Non superare 4 g/20L.', 'Aroma molto persistente. 1 fava per 20L può bastare.'],
         notes: 'Microplane o grattugia fine. Aroma tra vaniglia, mandorla e fieno. Attenzione: la cumarina è regolamentata in alcuni paesi.',
@@ -507,7 +527,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 15, max: 30, recommend: 22 },
         keyVolatiles: ['α-pinene', 'myrcene', 'limonene', 'terpinen-4-ol'],
         keyActives: ['α-pinene', 'myrcene'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [0.5, 2.5],
         risks: ['Può dominare birre delicate con note resinose/piney', 'Rischio di sovrapposizione con luppoli resinosi/terrosi'],
         notes: 'Schiacciare leggermente. Ottimo in Saison, Farmhouse e birre affumicate.',
@@ -523,7 +543,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 120, max: 250, recommend: 180 },
         keyVolatiles: ['pyrazines', 'aldehydes', 'methylbutanal', 'phenylacetaldehyde'],
         keyActives: ['theobromine', 'caffeine', 'cocoa polyphenols'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [48, 55],
         risks: ['Alto contenuto di grassi (48-55%): può ridurre ritenzione schiuma', 'Theobromina e caffeina: amaro persistente', 'Astringenza elevata con contatto prolungato oltre 7gg'],
         notes: 'Aroma cioccolato/toast/nocciola. Per stout/porter: 50-120 g/20L. Tostare leggermente prima dell\'uso per amplificare l\'aroma. Rimuovere dopo 5-7gg.',
@@ -537,7 +557,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 80, max: 180, recommend: 120 },
         keyVolatiles: ['pyrazines', 'aldehydes'],
         keyActives: ['theobromine', 'caffeine', 'cocoa polyphenols'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [10, 22],
         risks: ['Più amaro e astringente dei nibs', 'Torbidità elevata', 'Attenzione: il cacao alcalinizzato ha profilo diverso (meno acido, più scuro)'],
         notes: 'Polvere sgrassata (10-12% grassi). Sciogliere in acqua calda prima di aggiungere. Per stout/porter: 30-80 g/20L. Cacao alcalinizzato (olandese): colore più scuro, sapore più morbido.',
@@ -551,7 +571,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 200, max: 400, recommend: 300 },
         keyVolatiles: ['pyrazines', 'vanillin'],
         keyActives: ['theobromine', 'tannins'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [1, 4],
         risks: ['Più delicate dei nibs: aroma meno intenso', 'Tannini: astringenza se contatto prolungato'],
         notes: 'Aroma più floreale e meno amaro dei nibs. Ottime in saison e birre chiare. Rimuovere dopo 3-5gg.',
@@ -567,7 +587,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 100, max: 200, recommend: 150 },
         keyVolatiles: ['furfuryl mercaptan', 'pyrazines', 'guaiacol', '2-methylbutanal'],
         keyActives: ['caffeine', 'chlorogenic acids', 'trigonelline'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [12, 18],
         risks: ['I grani interi estraggono lentamente: 24-48h minime', 'Tostatura scura = più amaro e meno acido', 'Caffeina: amaro persistente ad alte dosi'],
         notes: 'Grani interi: estrazione lenta, aroma delicato. Per dry-bean: 40-100 g/20L, 24-48h. Usare roast_level per aggiustare il profilo. Light roast = più acido/fruttato, dark = più tostato/amaro.',
@@ -581,7 +601,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 180, max: 350, recommend: 250 },
         keyVolatiles: ['furfuryl mercaptan', 'pyrazines', 'guaiacol', '2-methylbutanal'],
         keyActives: ['caffeine', 'chlorogenic acids'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [12, 18],
         risks: ['Macinatura fine = sovra-estrazione rapida e torbidità', 'La macinatura da french press/cold brew è ideale', 'Contatto >24h a temperatura ambiente può estrarre tannini sgradevoli'],
         notes: 'Macinatura grossa (french press). Aggiungere in sacchetto, rimuovere dopo 12-24h. Per coffee stout: 70-180 g/20L. Light roast = acidità e frutta, dark roast = tostato e cioccolato amaro.',
@@ -589,13 +609,14 @@ const SPICES: SpiceInfo[] = [
     {
         id: 'cold_brew_coffee', name: 'Cold brew coffee (concentrato)', aliases: ['cold brew', 'cold brew coffee', 'caffè cold brew'], category: 'coffee',
         referenceForm: 'fresh',
+        doseUnit: 'ml',
         profile: { aroma: 0.65, pungency: 0.0, bitterness: 0.30, astringency: 0.25, cooling: 0.0 },
         low: { min: 100, max: 250, recommend: 180 },
         medium: { min: 250, max: 600, recommend: 400 },
         high: { min: 600, max: 1200, recommend: 900 },
         keyVolatiles: ['pyrazines', 'furfuryl derivatives'],
         keyActives: ['caffeine', 'chlorogenic acids'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [1, 3],
         risks: ['Attenzione: il dosaggio è in mL, non in grammi', 'Aggiunge liquido: considerare la diluizione', 'Concentrazione non standard: specificare il rapporto caffè/acqua usato'],
         notes: 'Dosaggio espresso in mL di concentrato, non in grammi di caffè. Preparare con rapporto 1:5 caffè/acqua, 18-24h a 4°C. Esempio: 200g caffè in 1L acqua fredda per 24h.',
@@ -611,7 +632,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 60, max: 120, recommend: 90 },
         keyVolatiles: ['bergamot oil', 'linalool', 'limonene', 'linalyl acetate'],
         keyActives: ['caffeine', 'tannins'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [0.5, 1.5],
         risks: ['Bergamotto dominante a dosi alte', 'Tannini: astringenza con infusione a caldo o contatto prolungato'],
         notes: 'Aggiungere a freddo (dry-tea) per 24-48h per minimizzare tannini. Per infusione a caldo: 10-15 min a 80°C. Ottimo in saison, witbier e pale ale.',
@@ -625,7 +646,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 80, max: 160, recommend: 120 },
         keyVolatiles: ['hexanal', 'linalool', 'geraniol'],
         keyActives: ['caffeine', 'catechins', 'EGCG'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [0.3, 1.0],
         risks: ['Molto sensibile alla temperatura: >80°C produce amaro eccessivo', 'Catechine: astringenza marcata con infusione prolungata'],
         notes: 'Dry-tea a freddo (24h) o infusione a 70°C per 10 min max. Ottimo in IPA e lager per note erbacee e fresche.',
@@ -639,7 +660,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 40, max: 80, recommend: 60 },
         keyVolatiles: ['α-bisabolol', 'chamazulene', 'apigenin'],
         keyActives: ['apigenin', 'bisabolol'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [0.3, 1.5],
         risks: ['Aroma delicato: facilmente mascherato da luppoli e malti tostati'],
         notes: 'Floreale, miele, mela. Ottima in witbier, saison e blonde ale. Infusione a freddo 24-48h o a caldo 10 min a 80°C.',
@@ -653,7 +674,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 80, max: 150, recommend: 110 },
         keyVolatiles: ['hibiscus acid', 'citric acid'],
         keyActives: ['anthocyanins', 'hibiscus acid'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [0.2, 0.8],
         risks: ['Colore rosso intenso: può dominare visivamente', 'Acidità percepita: può sembrare più acida di quanto sia'],
         notes: 'Colore rosso brillante, sapore acidulo-fruttato. Ottimo in sour, gose e berliner weisse. Infusione a freddo per colore più brillante.',
@@ -669,7 +690,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 150, max: 300, recommend: 220 },
         keyVolatiles: ['vanillin', 'whisky lactone', 'eugenol', 'furfural'],
         keyActives: ['tannins', 'lignins'],
-        pungencyProfile: 'immediate',
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [0.5, 2.0],
         risks: ['Tostatura influenza il profilo: light = più vaniglia/cocco, dark = più tostato/affumicato', 'Tannini: astringenza con contatto prolungato oltre 14gg'],
         notes: 'Vaniglia, cocco, tostato, speziato. Tostare le chips in forno prima dell\'uso per amplificare aromi. Contatto 7-14gg, assaggiare ogni 2-3gg.',
@@ -831,11 +852,11 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const timeHours = clamp(input.contact_time_hours, 0.05, 720);
     const tempC = Math.max(0, input.temperature_celsius);
 
-    // Temperature-dependent rate constant k (per hour)
+    // Temperature-dependent rate constant k (per hour), calibrated per ingredient
     // Reference k at 20°C: ~0.03/h for volatiles, ~0.02/h for non-volatiles
     const tempKMultiplier = Math.pow(1.8, (tempC - 20) / 10); // milder than Q10=2
-    const kVolatile = 0.03 * tempKMultiplier;
-    const kNonVolatile = 0.02 * tempKMultiplier;
+    const kVolatile = 0.03 * tempKMultiplier * spice.extraction.volatileRateMultiplier;
+    const kNonVolatile = 0.02 * tempKMultiplier * spice.extraction.nonVolatileRateMultiplier;
 
     // Saturating extraction: fraction = 1 - exp(-k * t)
     const volatileExtractFraction = 1 - Math.exp(-kVolatile * timeHours);
@@ -852,8 +873,9 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const effectiveNonVolatileExtract = nonVolatileExtractFraction * stage.nonVolatileExtract;
 
     // Reference extraction (reference form at 20°C, 72h, conditioning stage)
-    const refKVolatile = 0.03;
-    const refKNonVolatile = 0.02;
+    // Use the same per-ingredient rate multipliers for the reference
+    const refKVolatile = 0.03 * spice.extraction.volatileRateMultiplier;
+    const refKNonVolatile = 0.02 * spice.extraction.nonVolatileRateMultiplier;
     const refTimeHours = 72;
     const refVolatileFraction = 1 - Math.exp(-refKVolatile * refTimeHours);
     const refNonVolatileFraction = 1 - Math.exp(-refKNonVolatile * refTimeHours);
@@ -883,15 +905,34 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     // Perception amplification: >1 means the beer amplifies perceived intensity → need FEWER grams
     const aromaAmplification = matrix.perceptionAmplification.aroma;
 
-    // ── 8. Blend aroma/pungency dose divisors ──
-    const aromaWeight = spice.profile.aroma / (spice.profile.aroma + spice.profile.pungency + 0.01);
-    const pungencyWeight = spice.profile.pungency / (spice.profile.aroma + spice.profile.pungency + 0.01);
+    // ── 7. Roast level adjustment (coffee, cocoa only) ──
+    let roastAromaPotency = 1.0;
+    let roastBitterness = 1.0;
+    let roastAstringency = 1.0;
+    if (input.roast_level && (spice.category === 'coffee' || spice.category === 'cocoa')) {
+        const ra = input.roast_level === 'light' ? { aromaPotency: 1.05, bitterness: 0.85, astringency: 0.95 }
+            : input.roast_level === 'dark' ? { aromaPotency: 0.90, bitterness: 1.20, astringency: 1.10 }
+                : { aromaPotency: 1.0, bitterness: 1.0, astringency: 1.0 };
+        roastAromaPotency = ra.aromaPotency;
+        roastBitterness = ra.bitterness;
+        roastAstringency = ra.astringency;
+    }
+
+    // ── 8. Blend aroma/non-volatile dose divisors ──
+    // Non-volatile weight includes pungency, bitterness AND astringency
+    // so cocoa/coffee/tea aren't treated as purely aromatic ingredients
+    const nonVolatileWeightRaw = spice.profile.pungency
+        + spice.profile.bitterness * 0.7
+        + spice.profile.astringency * 0.8;
+    const totalWeight = spice.profile.aroma + nonVolatileWeightRaw + 0.01;
+    const aromaWeight = spice.profile.aroma / totalWeight;
+    const nonVolatileWeight = nonVolatileWeightRaw / totalWeight;
 
     // Aroma dose: reference / (extraction * form * potency * extractionBoost * amplification * masking)
     // masking < 1 → divisor shrinks → dose increases (correct: need more grams when beer masks aroma)
-    const aromaDoseDivisor = volatileDoseDivisor * potencyFactor * extractionBoost * aromaAmplification * Math.max(0.4, aromaMasking);
+    const aromaDoseDivisor = volatileDoseDivisor * potencyFactor * extractionBoost * aromaAmplification * Math.max(0.4, aromaMasking) / roastAromaPotency;
     const pungencyDoseDivisor = nonVolatileDoseDivisor * potencyFactor * extractionBoost * matrix.perceptionAmplification.pungency;
-    const blendedDoseDivisor = aromaDoseDivisor * aromaWeight + pungencyDoseDivisor * pungencyWeight;
+    const blendedDoseDivisor = aromaDoseDivisor * aromaWeight + pungencyDoseDivisor * nonVolatileWeight;
 
     // ── 8b. Dose divergence check ──
     // Compute individual target doses to detect when aroma and pungency pull in opposite directions
@@ -959,14 +1000,13 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const halfSatNonVolatileGL = Math.max(0.001, refEffectiveNonVolatileGL);
 
     // Hill-type saturation curve: intensity = dose^n / (ec50^n + dose^n)
-    // Use n=1 (Michaelis-Menten) for most; n=2 (sigmoid) for steep-curve spices
-    const hillNAroma = spice.pungencyProfile === 'persistent' ? 2 : 1;
-    const hillNPungency = spice.pungencyProfile === 'building' ? 2 : 1;
+    const hillNAroma = spice.perceptionProfile === 'persistent' ? 2 : 1;
+    const hillNNonVolatile = spice.perceptionProfile === 'building' ? 2 : 1;
 
     const rawAroma = Math.pow(effectiveVolatileDoseGL, hillNAroma) /
         (Math.pow(halfSatVolatileGL, hillNAroma) + Math.pow(effectiveVolatileDoseGL, hillNAroma));
-    const rawPungency = Math.pow(effectiveNonVolatileDoseGL, hillNPungency) /
-        (Math.pow(halfSatNonVolatileGL, hillNPungency) + Math.pow(effectiveNonVolatileDoseGL, hillNPungency));
+    const rawNonVolatile = Math.pow(effectiveNonVolatileDoseGL, hillNNonVolatile) /
+        (Math.pow(halfSatNonVolatileGL, hillNNonVolatile) + Math.pow(effectiveNonVolatileDoseGL, hillNNonVolatile));
 
     // Apply perception amplification and masking to the raw intensity.
     // Profile is used as relative partition, normalized by the dominant dimension,
@@ -976,16 +1016,16 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
         spice.profile.astringency, spice.profile.cooling, 0.01
     );
     const normAroma = spice.profile.aroma / dominantProfile;
-    const normPungency = spice.profile.pungency / dominantProfile;
+    const normNonVolatile = spice.profile.pungency / dominantProfile;
     const normBitterness = spice.profile.bitterness / dominantProfile;
     const normAstringency = spice.profile.astringency / dominantProfile;
     const normCooling = spice.profile.cooling / dominantProfile;
 
     const contributions = {
         aroma: clamp01(rawAroma * normAroma * aromaAmplification * aromaMasking),
-        pungency: clamp01(rawPungency * normPungency * matrix.perceptionAmplification.pungency),
-        bitterness: clamp01(rawPungency * normBitterness * matrix.perceptionAmplification.bitterness),
-        astringency: clamp01(rawPungency * normAstringency * matrix.perceptionAmplification.astringency),
+        pungency: clamp01(rawNonVolatile * normNonVolatile * matrix.perceptionAmplification.pungency),
+        bitterness: clamp01(rawNonVolatile * normBitterness * matrix.perceptionAmplification.bitterness),
+        astringency: clamp01(rawNonVolatile * normAstringency * matrix.perceptionAmplification.astringency),
         cooling: clamp01(rawAroma * normCooling * matrix.perceptionAmplification.cooling),
     };
 
@@ -1345,8 +1385,8 @@ function formatSpiceResults(input: SpiceCalcInput, showDetails: boolean): string
         } else {
             lines.push('**Olio essenziale:** dato non calibrato nel database');
         }
-        if (spice.pungencyProfile === 'building') lines.push('**Profilo pungenza:** si accumula gradualmente — non giudicare dal primo assaggio.');
-        if (spice.pungencyProfile === 'persistent') lines.push('**Profilo pungenza:** molto persistente — può dominare anche a dosi moderate.');
+        if (spice.perceptionProfile === 'building') lines.push('**Profilo pungenza:** si accumula gradualmente — non giudicare dal primo assaggio.');
+        if (spice.perceptionProfile === 'persistent') lines.push('**Profilo pungenza:** molto persistente — può dominare anche a dosi moderate.');
         lines.push('');
 
         // ── Sensory profile radar summary (detail) ──
