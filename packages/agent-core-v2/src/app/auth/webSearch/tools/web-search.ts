@@ -141,12 +141,8 @@ function classifySearchError(error: unknown): string {
 }
 
 registerTool(WebSearchTool, {
-  when: (accessor) => accessor.get(IWebSearchProviderService).getWebSearchProvider() !== undefined,
   staticArgs: (accessor) => {
     const provider = accessor.get(IWebSearchProviderService).getWebSearchProvider();
-    if (provider === undefined) {
-      throw new Error('WebSearchProviderService returned no provider during tool registration.');
-    }
     return [provider];
   },
 });

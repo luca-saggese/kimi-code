@@ -11,9 +11,9 @@
  * `IOAuthService.resolveTokenProvider(...)` and whose base URL is derived from
  * the provider's `baseUrl`. The explicit config wins over the managed
  * derivation. Both use the host's Kimi identity headers (`IHostRequestHeaders`,
- * mirroring v1's `kimiRequestHeaders`) as default headers. When neither source
- * is configured it yields `undefined` so the self-registering `WebSearch` tool
- * stays hidden. Owns no tool registration — the `WebSearch` tool self-registers
+ * mirroring v1's `kimiRequestHeaders`) as default headers. When neither is
+ * configured, falls back to DuckDuckGo's free public API (no key required).
+ * Owns no tool registration — the `WebSearch` tool self-registers
  * via `registerTool(...)` and reads this service from the Agent-scope accessor.
  * Tests and hosts that need a custom backend bind `IWebSearchProviderService`
  * directly. Bound at App scope.
@@ -32,6 +32,7 @@ import { IHostRequestHeaders } from '#/app/model/hostRequestHeaders';
 import { IProviderService } from '#/app/provider/provider';
 
 import { SERVICES_SECTION, type ServicesConfig } from '../configSection';
+import { DuckDuckGoWebSearchProvider } from './providers/duckduckgo-web-search';
 import { MoonshotWebSearchProvider } from './providers/moonshot-web-search';
 import type { WebSearchProvider } from './tools/web-search';
 import { IWebSearchProviderService } from './webSearch';
@@ -46,8 +47,8 @@ export class WebSearchProviderService implements IWebSearchProviderService {
     @IConfigService private readonly config: IConfigService,
   ) {}
 
-  getWebSearchProvider(): WebSearchProvider | undefined {
-    return this.fromServicesConfig() ?? this.fromManagedOAuth();
+  getWebSearchProvider(): WebSearchProvider {
+    return this.fromServicesConfig() ?? this.fromManagedOAuth() ?? new DuckDuckGoWebSearchProvider();
   }
 
   private fromServicesConfig(): WebSearchProvider | undefined {

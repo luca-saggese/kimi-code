@@ -4,12 +4,11 @@
  * Owns the seam for the `WebSearch` backend. Web search needs an authenticated
  * Moonshot search provider, so it lives here beside the OAuth toolkit rather
  * than in the auth-independent `web` domain. `IWebSearchProviderService`
- * exposes the configured `WebSearchProvider` (or `undefined` when search is not
- * configured, in which case the `WebSearch` tool is not registered). The
- * default `WebSearchProviderService` builds the backend itself from the managed
- * Kimi OAuth provider's `oauth` ref (resolved through `IOAuthService`); tests
- * and hosts that need a custom backend bind `IWebSearchProviderService`
- * directly. Bound at App scope.
+ * exposes the configured `WebSearchProvider`. Falls back to DuckDuckGo's free
+ * public API when neither a Kimi config nor a managed OAuth provider is
+ * configured, so the `WebSearch` tool is always available. Tests and hosts
+ * that need a custom backend bind `IWebSearchProviderService` directly.
+ * Bound at App scope.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
@@ -21,7 +20,7 @@ export type { WebSearchProvider, WebSearchResult } from './tools/web-search';
 export interface IWebSearchProviderService {
   readonly _serviceBrand: undefined;
 
-  getWebSearchProvider(): WebSearchProvider | undefined;
+  getWebSearchProvider(): WebSearchProvider;
 }
 
 export const IWebSearchProviderService: ServiceIdentifier<IWebSearchProviderService> =

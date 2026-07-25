@@ -806,19 +806,19 @@ describe('WebSearchProviderService', () => {
     return ix.get(IWebSearchProviderService);
   }
 
-  it('returns undefined when the managed provider is not configured', () => {
+  it('returns DuckDuckGo fallback when the managed provider is not configured', () => {
     providers = { [NON_OAUTH_PROVIDER]: { type: 'openai', apiKey: 'sk-test' } };
-    expect(createService().getWebSearchProvider()).toBeUndefined();
+    expect(createService().getWebSearchProvider()).not.toBeUndefined();
     expect(resolveTokenProvider).not.toHaveBeenCalled();
   });
 
-  it('returns undefined when the managed provider is not an OAuth kimi provider', () => {
+  it('returns DuckDuckGo fallback when the managed provider is not an OAuth kimi provider', () => {
     providers = { [OAUTH_PROVIDER]: { type: 'kimi', apiKey: 'sk-test' } };
-    expect(createService().getWebSearchProvider()).toBeUndefined();
+    expect(createService().getWebSearchProvider()).not.toBeUndefined();
     expect(resolveTokenProvider).not.toHaveBeenCalled();
   });
 
-  it('returns undefined when the oauth service yields no token provider', () => {
+  it('returns DuckDuckGo fallback when the oauth service yields no token provider', () => {
     providers = {
       [OAUTH_PROVIDER]: {
         type: 'kimi',
@@ -827,7 +827,7 @@ describe('WebSearchProviderService', () => {
       },
     };
     resolveTokenProvider.mockReturnValue(undefined);
-    expect(createService().getWebSearchProvider()).toBeUndefined();
+    expect(createService().getWebSearchProvider()).not.toBeUndefined();
   });
 
   it('builds a search provider from the managed provider oauth ref', () => {
@@ -966,9 +966,9 @@ describe('WebSearchProviderService', () => {
     expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer access-token');
   });
 
-  it('returns undefined when services.moonshot_search has no baseUrl and no managed oauth', () => {
+  it('returns DuckDuckGo fallback when services.moonshot_search has no baseUrl and no managed oauth', () => {
     servicesConfig = { moonshotSearch: { apiKey: 'search-key' } };
-    expect(createService().getWebSearchProvider()).toBeUndefined();
+    expect(createService().getWebSearchProvider()).not.toBeUndefined();
     expect(resolveTokenProvider).not.toHaveBeenCalled();
   });
 });

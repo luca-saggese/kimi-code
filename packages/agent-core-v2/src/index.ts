@@ -318,6 +318,7 @@ export * from '#/app/auth/authService';
 export * from '#/app/auth/configSection';
 export * from '#/app/auth/webSearch/webSearch';
 export * from '#/app/auth/webSearch/webSearchService';
+export * from '#/app/auth/webSearch/providers/duckduckgo-web-search';
 export * from '#/app/auth/webSearch/providers/moonshot-web-search';
 export * from '#/app/authLegacy/authLegacy';
 export * from '#/app/authLegacy/authLegacyService';
