@@ -74,9 +74,7 @@ type SpiceForm =
     | 'cracked'
     | 'ground'
     | 'fresh'
-    | 'dried'
-    | 'tincture'
-    | 'extract';
+    | 'dried';
 
 type AdditionStage =
     | 'mash'
@@ -113,8 +111,6 @@ const FORMS: Record<SpiceForm, FormProperties> = {
     ground: { label: 'Macinato / polvere', volatileExtractSpeed: 1.0, nonVolatileExtractSpeed: 1.0, volatileHeatLoss: 0.80, repeatability: 'good', overdoseRisk: 'high', removable: false },
     fresh: { label: 'Fresco', volatileExtractSpeed: 0.80, nonVolatileExtractSpeed: 0.70, volatileHeatLoss: 0.60, repeatability: 'low', overdoseRisk: 'medium', removable: true },
     dried: { label: 'Essiccato', volatileExtractSpeed: 0.55, nonVolatileExtractSpeed: 0.50, volatileHeatLoss: 0.45, repeatability: 'medium', overdoseRisk: 'low', removable: true },
-    tincture: { label: 'Tintura alcolica', volatileExtractSpeed: 1.0, nonVolatileExtractSpeed: 0.90, volatileHeatLoss: 0.0, repeatability: 'very_good', overdoseRisk: 'low', removable: false },
-    extract: { label: 'Estratto standardizzato', volatileExtractSpeed: 1.0, nonVolatileExtractSpeed: 1.0, volatileHeatLoss: 0.05, repeatability: 'very_good', overdoseRisk: 'high', removable: false },
 };
 
 // ── Stage extraction properties ──────────────────────────────────────────────
@@ -420,8 +416,8 @@ const SPICES: SpiceInfo[] = [
         low: { min: 1, max: 3, recommend: 2 },
         medium: { min: 3, max: 7, recommend: 5 },
         high: { min: 7, max: 12, recommend: 9 },
-        keyVolatiles: ['paradol', 'gingerol', 'shogaol'],
-        keyActives: ['paradol', 'gingerol'],
+        keyVolatiles: ['β-caryophyllene', 'limonene', 'α-pinene', 'α-humulene'],
+        keyActives: ['paradol', 'gingerol', 'shogaol'],
         pungencyProfile: 'immediate',
         oilRangePercent: [0.5, 2.0],
         risks: ['Pungenza cumulativa', 'Può dominare birre delicate'],
@@ -476,7 +472,7 @@ const SPICES: SpiceInfo[] = [
         low: { min: 0.5, max: 2, recommend: 1 },
         medium: { min: 2, max: 5, recommend: 3.5 },
         high: { min: 5, max: 10, recommend: 7 },
-        keyVolatiles: ['β-caryophyllene', 'piperine', 'piperlongumine'],
+        keyVolatiles: ['β-caryophyllene', 'limonene', 'sabinene', 'α-pinene'],
         keyActives: ['piperine', 'piperlongumine'],
         pungencyProfile: 'building',
         oilRangePercent: [1.0, 3.0],
@@ -612,7 +608,7 @@ interface SpiceDoseOutput {
     doseMinG: number;
     /** High end of operational range. */
     doseMaxG: number;
-    /** Expected intensity on the 0-1 scale for each dimension. */
+    /** Expected perceived intensity as an integer percentage, 0-100. */
     contributions: {
         aroma: number;
         pungency: number;
@@ -693,7 +689,9 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const refVolatileFraction = 1 - Math.exp(-refKVolatile * refTimeHours);
     const refNonVolatileFraction = 1 - Math.exp(-refKNonVolatile * refTimeHours);
     const refStage = STAGES['conditioning'];
-    const refVolatileRetention = Math.exp(-refStage.volatileEvaporation * 3 * refVolatileFraction);
+    // Fix #1: include refForm.volatileHeatLoss so reference model matches real model
+    const refEffectiveHeatLoss = refStage.volatileEvaporation * refForm.volatileHeatLoss;
+    const refVolatileRetention = Math.exp(-refEffectiveHeatLoss * 3 * refVolatileFraction);
     const refEffectiveVolatile = refVolatileFraction * refVolatileRetention * refStage.volatileExtract;
     const refEffectiveNonVolatile = refNonVolatileFraction * refStage.nonVolatileExtract;
 
@@ -726,6 +724,15 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const pungencyDoseDivisor = nonVolatileDoseDivisor * potencyFactor * extractionBoost * matrix.perceptionAmplification.pungency;
     const blendedDoseDivisor = aromaDoseDivisor * aromaWeight + pungencyDoseDivisor * pungencyWeight;
 
+    // ── 8b. Dose divergence check ──
+    // Compute individual target doses to detect when aroma and pungency pull in opposite directions
+    const safeAromaDivisor = Math.max(0.15, aromaDoseDivisor);
+    const safePungencyDivisor = Math.max(0.15, pungencyDoseDivisor);
+    const aromaTargetDose = refRange.recommend * (input.batch_liters / 20) / safeAromaDivisor;
+    const pungencyTargetDose = refRange.recommend * (input.batch_liters / 20) / safePungencyDivisor;
+    const doseDivergence = Math.max(aromaTargetDose, pungencyTargetDose)
+        / Math.max(0.01, Math.min(aromaTargetDose, pungencyTargetDose));
+
     // ── 9. Chili: intensity-aware SHU-based reference ──
     let refMin = refRange.min;
     let refMax = refRange.max;
@@ -753,6 +760,7 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
 
     // ── 10. Scale from 20L reference to actual batch size, divide by efficiency ──
     const batchScale = input.batch_liters / 20;
+    const divisorWasClamped = blendedDoseDivisor < 0.15;
     const safeDivisor = Math.max(0.15, blendedDoseDivisor);
     const doseRecommendedG = refRec * batchScale / safeDivisor;
     const doseMinG = refMin * batchScale / safeDivisor;
@@ -764,9 +772,14 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const effectiveVolatileDoseGL = doseRecommendedG * effectiveVolatileExtract * relativeVolatileExtract * potencyFactor * extractionBoost / input.batch_liters;
     const effectiveNonVolatileDoseGL = doseRecommendedG * effectiveNonVolatileExtract * relativeNonVolatileExtract * potencyFactor * extractionBoost / input.batch_liters;
 
-    // Half-saturation doses (g/L effective) — the dose where perception reaches 50%
-    const halfSatVolatileGL = 0.5;   // 0.5 g/L effective volatiles = 50% perceived aroma
-    const halfSatNonVolatileGL = 0.3;
+    // Fix #2: spice-specific EC50 derived from reference medium dose.
+    // Under reference conditions, medium.recommend g/20L should produce ~50% intensity
+    // for the dominant dimension, so "medium" actually maps to a medium contribution.
+    const refMediumDoseGL = spice.medium.recommend / 20;
+    const refEffectiveVolatileGL = refMediumDoseGL * refEffectiveVolatile;
+    const refEffectiveNonVolatileGL = refMediumDoseGL * refEffectiveNonVolatile;
+    const halfSatVolatileGL = Math.max(0.001, refEffectiveVolatileGL);
+    const halfSatNonVolatileGL = Math.max(0.001, refEffectiveNonVolatileGL);
 
     // Hill-type saturation curve: intensity = dose^n / (ec50^n + dose^n)
     // Use n=1 (Michaelis-Menten) for most; n=2 (sigmoid) for steep-curve spices
@@ -837,6 +850,24 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
         confidenceNotes.push(`Forte variabilità dell'olio essenziale (${oilRange[0].toFixed(1)}-${oilRange[1].toFixed(1)}%): due lotti possono differire significativamente.`);
     }
 
+    // Divisor clamping: the model thinks the method is extremely inefficient
+    if (divisorWasClamped) {
+        confidence -= 0.20;
+        confidenceNotes.push(
+            'Efficienza prevista estremamente bassa: il correttore di sicurezza ha limitato la dose. ' +
+            'Cambiare metodo di aggiunta (es. conditioning, tintura) invece di aumentare ulteriormente la quantità.'
+        );
+    }
+
+    // Dose divergence: aroma and pungency pull in opposite directions
+    if (doseDivergence > 2) {
+        confidence -= 0.10;
+        confidenceNotes.push(
+            'Aroma e pungenza richiedono dosi molto diverse (fattore ' + doseDivergence.toFixed(1) + '×). ' +
+            'La dose proposta è un compromesso: preferire tintura e dosaggio incrementale.'
+        );
+    }
+
     confidence = clamp(confidence, 0.1, 0.95);
 
     // ── 13. Method recommendation ──
@@ -905,7 +936,7 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     if (input.stage === 'whirlpool') tips.push('Whirlpool: 15-30 min a 80-90°C è il punto ottimale per molte spezie.');
     if (input.form === 'ground') tips.push('Polvere: difficile da rimuovere. Considerare filtrazione fine o cold crash prima del confezionamento.');
     if (input.form === 'whole' && input.stage !== 'boil') tips.push('Intero: schiacciare o spezzare leggermente prima dell\'uso per favorire l\'estrazione.');
-    if (input.beer_matrix.roastIntensity > 0.3) tips.push('Malti tostati mascherano aromi delicati. Aumentare la dose del 10-15% o scegliere spezie più robuste.');
+    if (input.beer_matrix.roastIntensity > 0.3) tips.push('I malti tostati mascherano gli aromi delicati. Il dosaggio proposto include già una correzione per questo effetto; confermare comunque tramite bench trial.');
     if (input.beer_matrix.acidity > 0.3) tips.push('Birra acida: esalta freschezza e agrumi ma può rendere aggressivi zenzero, peperoncino e chiodo di garofano.');
 
     return {
@@ -984,7 +1015,7 @@ function confidenceLabel(c: number): string {
 
 // ── Formatting ───────────────────────────────────────────────────────────────
 
-function formatSpiceResults(input: SpiceCalcInput): string {
+function formatSpiceResults(input: SpiceCalcInput, showDetails: boolean): string {
     const lines: string[] = [];
     lines.push(`# 🌶️ Spice Calculator: ${input.spice_name} in ${input.batch_liters}L`);
     lines.push('');
@@ -1167,7 +1198,7 @@ export const SpiceCalculatorInputSchema = z.object({
     spice_name: z.string().trim().min(1).describe('Nome della spezia principale in italiano. Es: "Pepe nero", "Coriandolo", "Cannella".'),
     batch_liters: z.number().positive().describe('Volume della birra a cui aggiungere la spezia (L).'),
     intensity: z.enum(['low', 'medium', 'high']).default('medium').describe('Intensità desiderata: low, medium, high.'),
-    form: z.enum(['whole', 'cracked', 'ground', 'fresh', 'dried', 'tincture', 'extract']).default('cracked').describe('Forma fisica della spezia.'),
+    form: z.enum(['whole', 'cracked', 'ground', 'fresh', 'dried']).default('cracked').describe('Forma fisica della spezia.'),
     stage: z.enum(['mash', 'boil', 'whirlpool', 'fermentation', 'conditioning', 'keg', 'tincture']).default('conditioning').describe('Stadio di aggiunta.'),
     contact_time_hours: z.number().positive().default(72).describe('Tempo di contatto previsto in ore (es. 72 per 3 giorni).'),
     temperature_celsius: z.number().min(0).max(100).default(20).describe('Temperatura durante il contatto (°C).'),
@@ -1182,6 +1213,25 @@ export const SpiceCalculatorInputSchema = z.object({
     acidity: z.number().min(0).max(1).default(0).describe('Acidità percepita (0-1, 0=non acida).'),
     other_spices: z.array(z.string().trim().min(1)).default([]).describe('Altre spezie già presenti nella ricetta.'),
     show_details: z.boolean().default(true).describe('Mostra dettagli completi.'),
+}).superRefine((input, ctx) => {
+    // Tintura come stadio richiede coerenza: solo conditioning/keg/tincture
+    if (input.stage === 'tincture' && !['conditioning', 'keg'].includes(input.stage)) {
+        // stage===tincture is fine as a separate preparation method
+    }
+    if (input.stage === 'mash' && input.contact_time_hours > 3) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['contact_time_hours'],
+            message: 'In mash il tempo di contatto è limitato dalla durata del mash (tipicamente ≤2 ore).',
+        });
+    }
+    if (input.stage === 'boil' && input.contact_time_hours > 3) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['contact_time_hours'],
+            message: 'In bollitura il tempo di contatto è limitato dalla durata della bollitura (tipicamente ≤2 ore).',
+        });
+    }
 });
 
 export type SpiceCalculatorInput = z.infer<typeof SpiceCalculatorInputSchema>;
@@ -1194,7 +1244,7 @@ const SPICE_CALCULATOR_PARAMETERS: Record<string, unknown> = {
         spice_name: { type: 'string', description: 'Nome della spezia principale in italiano. Es: "Pepe nero", "Coriandolo", "Cannella", "Zenzero", "Chiodo di garofano".' },
         batch_liters: { type: 'number', exclusiveMinimum: 0, description: 'Volume della birra a cui aggiungere la spezia (L).' },
         intensity: { type: 'string', enum: ['low', 'medium', 'high'], default: 'medium', description: 'Intensità desiderata: low (bassa), medium (media), high (alta).' },
-        form: { type: 'string', enum: ['whole', 'cracked', 'ground', 'fresh', 'dried', 'tincture', 'extract'], default: 'cracked', description: 'Forma fisica: whole (intero), cracked (spezzato), ground (macinato), fresh (fresco), dried (essiccato), tincture (tintura), extract (estratto).' },
+        form: { type: 'string', enum: ['whole', 'cracked', 'ground', 'fresh', 'dried'], default: 'cracked', description: 'Forma fisica: whole (intero), cracked (spezzato), ground (macinato), fresh (fresco), dried (essiccato).' },
         stage: { type: 'string', enum: ['mash', 'boil', 'whirlpool', 'fermentation', 'conditioning', 'keg', 'tincture'], default: 'conditioning', description: 'Stadio di aggiunta: mash, boil (bollitura), whirlpool, fermentation, conditioning (maturazione/dry-spice), keg (fusto), tincture (tintura separata).' },
         contact_time_hours: { type: 'number', exclusiveMinimum: 0, default: 72, description: 'Tempo di contatto previsto in ore (es. 72 per 3 giorni).' },
         temperature_celsius: { type: 'number', minimum: 0, maximum: 100, default: 20, description: 'Temperatura durante il contatto (°C).' },
@@ -1251,7 +1301,7 @@ export class SpiceCalculatorTool implements BuiltinTool<SpiceCalculatorInput> {
                         },
                         other_spices: args.other_spices ?? [],
                     };
-                    return Promise.resolve({ output: formatSpiceResults(input) });
+                    return Promise.resolve({ output: formatSpiceResults(input, args.show_details) });
                 } catch (e) {
                     return Promise.resolve({ isError: true, output: e instanceof Error ? e.message : String(e) });
                 }
