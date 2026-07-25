@@ -23,6 +23,10 @@ import { registerTool } from '#/agent/toolRegistry/toolContribution';
 
 type DoseUnit = 'g' | 'ml';
 
+type DeliveryMode = 'solid_extraction' | 'direct_liquid_dose';
+
+type WoodToastLevel = 'untoasted' | 'light' | 'medium' | 'heavy';
+
 // ── Sensory profile ──────────────────────────────────────────────────────────
 
 interface SpiceSensoryProfile {
@@ -54,6 +58,29 @@ interface ExtractionCalibration {
     nonVolatileRateMultiplier: number;
 }
 
+interface ReferenceConditions {
+    /** Addition stage under which the empirical dosage ranges were measured. */
+    stage: AdditionStage;
+    /** Contact time in hours for the reference dosage. */
+    contactTimeHours: number;
+    /** Temperature in °C during reference contact. */
+    temperatureCelsius: number;
+}
+
+interface WoodToastProfile {
+    /** Multiplier for perceived aroma relative to reference toast. */
+    aroma: number;
+    /** Multiplier for perceived astringency relative to reference toast. */
+    astringency: number;
+}
+
+const WOOD_TOAST: Record<WoodToastLevel, WoodToastProfile> = {
+    untoasted: { aroma: 0.85, astringency: 1.25 },
+    light: { aroma: 1.05, astringency: 1.05 },
+    medium: { aroma: 1.10, astringency: 0.95 },
+    heavy: { aroma: 0.95, astringency: 0.90 },
+};
+
 interface SpiceInfo {
     id: string;
     name: string;
@@ -64,6 +91,11 @@ interface SpiceInfo {
     referenceForm: SpiceForm;
     /** Unit for dosage ranges: g (most) or ml (cold brew). */
     doseUnit: DoseUnit;
+    /** How the ingredient enters the beer: solid extraction (default) or pre-made liquid. */
+    deliveryMode?: DeliveryMode;
+    /** Empirical conditions under which the database dosage ranges were calibrated.
+     *  Defaults to conditioning, 72 h, 20 °C when omitted. */
+    referenceConditions?: ReferenceConditions;
     /** Sensory vector. */
     profile: SpiceSensoryProfile;
     /** Empirical dosage range per intensity level (per 20L, reference form). */
@@ -537,6 +569,7 @@ const SPICES: SpiceInfo[] = [
     {
         id: 'cocoa_nibs', name: 'Cacao in granella (nibs)', aliases: ['cacao', 'cocoa nibs', 'granella di cacao', 'nibs di cacao'], category: 'cocoa',
         referenceForm: 'cracked',
+        referenceConditions: { stage: 'conditioning', contactTimeHours: 120, temperatureCelsius: 20 },
         profile: { aroma: 0.55, pungency: 0.0, bitterness: 0.50, astringency: 0.55, cooling: 0.0 },
         low: { min: 20, max: 50, recommend: 35 },
         medium: { min: 50, max: 120, recommend: 80 },
@@ -551,6 +584,7 @@ const SPICES: SpiceInfo[] = [
     {
         id: 'cocoa_powder', name: 'Cacao in polvere (naturale)', aliases: ['cacao in polvere', 'cocoa powder', 'polvere di cacao'], category: 'cocoa',
         referenceForm: 'ground',
+        referenceConditions: { stage: 'conditioning', contactTimeHours: 72, temperatureCelsius: 20 },
         profile: { aroma: 0.45, pungency: 0.0, bitterness: 0.65, astringency: 0.70, cooling: 0.0 },
         low: { min: 10, max: 30, recommend: 20 },
         medium: { min: 30, max: 80, recommend: 50 },
@@ -572,7 +606,7 @@ const SPICES: SpiceInfo[] = [
         keyVolatiles: ['pyrazines', 'vanillin'],
         keyActives: ['theobromine', 'tannins'],
         perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
-        oilRangePercent: [1, 4],
+        fatRangePercent: [1, 4],
         risks: ['Più delicate dei nibs: aroma meno intenso', 'Tannini: astringenza se contatto prolungato'],
         notes: 'Aroma più floreale e meno amaro dei nibs. Ottime in saison e birre chiare. Rimuovere dopo 3-5gg.',
     },
@@ -581,6 +615,7 @@ const SPICES: SpiceInfo[] = [
     {
         id: 'coffee_beans', name: 'Caffè in grani (interi)', aliases: ['caffè', 'coffee', 'caffè in grani', 'coffee beans', 'chicchi caffè'], category: 'coffee',
         referenceForm: 'whole',
+        referenceConditions: { stage: 'conditioning', contactTimeHours: 36, temperatureCelsius: 20 },
         profile: { aroma: 0.60, pungency: 0.0, bitterness: 0.45, astringency: 0.40, cooling: 0.0 },
         low: { min: 15, max: 40, recommend: 25 },
         medium: { min: 40, max: 100, recommend: 70 },
@@ -595,6 +630,7 @@ const SPICES: SpiceInfo[] = [
     {
         id: 'coffee_ground', name: 'Caffè macinato (grosso)', aliases: ['caffè macinato', 'coarse ground coffee', 'caffè macinato grosso'], category: 'coffee',
         referenceForm: 'cracked',
+        referenceConditions: { stage: 'conditioning', contactTimeHours: 18, temperatureCelsius: 20 },
         profile: { aroma: 0.70, pungency: 0.0, bitterness: 0.60, astringency: 0.55, cooling: 0.0 },
         low: { min: 15, max: 40, recommend: 25 },
         medium: { min: 40, max: 100, recommend: 65 },
@@ -610,6 +646,7 @@ const SPICES: SpiceInfo[] = [
         id: 'cold_brew_coffee', name: 'Cold brew coffee (concentrato)', aliases: ['cold brew', 'cold brew coffee', 'caffè cold brew'], category: 'coffee',
         referenceForm: 'fresh',
         doseUnit: 'ml',
+        deliveryMode: 'direct_liquid_dose',
         profile: { aroma: 0.65, pungency: 0.0, bitterness: 0.30, astringency: 0.25, cooling: 0.0 },
         low: { min: 100, max: 250, recommend: 180 },
         medium: { min: 250, max: 600, recommend: 400 },
@@ -640,6 +677,7 @@ const SPICES: SpiceInfo[] = [
     {
         id: 'green_tea', name: 'Tè verde', aliases: ['tè verde', 'green tea'], category: 'tea',
         referenceForm: 'dried',
+        referenceConditions: { stage: 'conditioning', contactTimeHours: 24, temperatureCelsius: 4 },
         profile: { aroma: 0.35, pungency: 0.0, bitterness: 0.35, astringency: 0.35, cooling: 0.0 },
         low: { min: 10, max: 30, recommend: 20 },
         medium: { min: 30, max: 80, recommend: 50 },
@@ -684,6 +722,7 @@ const SPICES: SpiceInfo[] = [
     {
         id: 'oak_chips', name: 'Chips di rovere', aliases: ['rovere', 'oak chips', 'chips rovere'], category: 'wood',
         referenceForm: 'dried',
+        referenceConditions: { stage: 'conditioning', contactTimeHours: 240, temperatureCelsius: 20 },
         profile: { aroma: 0.45, pungency: 0.0, bitterness: 0.25, astringency: 0.45, cooling: 0.0 },
         low: { min: 5, max: 15, recommend: 10 },
         medium: { min: 15, max: 40, recommend: 25 },
@@ -691,7 +730,6 @@ const SPICES: SpiceInfo[] = [
         keyVolatiles: ['vanillin', 'whisky lactone', 'eugenol', 'furfural'],
         keyActives: ['tannins', 'lignins'],
         perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 0.25, nonVolatileRateMultiplier: 0.30 },
-        oilRangePercent: [0.5, 2.0],
         risks: ['Tostatura influenza il profilo: light = più vaniglia/cocco, dark = più tostato/affumicato', 'Tannini: astringenza con contatto prolungato oltre 14gg'],
         notes: 'Vaniglia, cocco, tostato, speziato. Tostare le chips in forno prima dell\'uso per amplificare aromi. Contatto 7-14gg, assaggiare ogni 2-3gg.',
     },
@@ -789,6 +827,14 @@ interface SpiceCalcInput {
     beer_matrix: BeerMatrixInput;
     /** Names of other adjuncts already in the recipe. */
     other_spices: string[];
+    /** For direct liquid doses: relative concentration vs reference (1.0 = reference 1:5 cold brew). */
+    liquid_strength_relative?: number;
+    /** For direct liquid doses: coffee grams per liter of water used in preparation. */
+    coffee_grams_per_liter?: number;
+    /** Toast level for wood adjuncts (oak chips etc.). */
+    wood_toast_level?: WoodToastLevel;
+    /** Hours since the liquid adjunct (cold brew, tincture) was prepared. */
+    prepared_hours_ago?: number;
 }
 
 interface SpiceDoseOutput {
@@ -830,7 +876,7 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     // ── 1. Find the spice ──
     const matches = findAllSpiceMatches(input.spice_name);
     if (matches.length === 0) {
-        throw new Error(`Spezia "${input.spice_name}" non trovata nel database.`);
+        throw new Error(`Ingrediente "${input.spice_name}" non trovato nel database.`);
     }
     const spice = matches[0]!;
 
@@ -843,15 +889,22 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
         return buildChiliUnknownResult(spice, input);
     }
 
-    // ── 4. Form: normalize vs referenceForm ──
+    // ── 4. Delivery mode ──
+    const isDirectLiquid = spice.deliveryMode === 'direct_liquid_dose';
+
+    // ── 5. Form: normalize vs referenceForm (skipped for direct liquid doses) ──
     const form = FORMS[input.form];
     const refForm = FORMS[spice.referenceForm];
 
     // Relative extraction: >1 = extracts more than reference → need LESS grams
-    const relativeVolatileExtract = form.volatileExtractSpeed / Math.max(0.01, refForm.volatileExtractSpeed);
-    const relativeNonVolatileExtract = form.nonVolatileExtractSpeed / Math.max(0.01, refForm.nonVolatileExtractSpeed);
+    const relativeVolatileExtract = isDirectLiquid
+        ? 1
+        : form.volatileExtractSpeed / Math.max(0.01, refForm.volatileExtractSpeed);
+    const relativeNonVolatileExtract = isDirectLiquid
+        ? 1
+        : form.nonVolatileExtractSpeed / Math.max(0.01, refForm.nonVolatileExtractSpeed);
 
-    // ── 5. Stage + time + temperature — saturating extraction model ──
+    // ── 6. Stage + time + temperature — saturating extraction model ──
     const stage = STAGES[input.stage];
     const timeHours = clamp(input.contact_time_hours, 0.05, 720);
     const tempC = Math.max(0, input.temperature_celsius);
@@ -863,8 +916,9 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const kNonVolatile = 0.02 * tempKMultiplier * spice.extraction.nonVolatileRateMultiplier;
 
     // Saturating extraction: fraction = 1 - exp(-k * t)
-    const volatileExtractFraction = 1 - Math.exp(-kVolatile * timeHours);
-    const nonVolatileExtractFraction = 1 - Math.exp(-kNonVolatile * timeHours);
+    // Direct liquid doses skip the extraction model — the extract is already in solution
+    const volatileExtractFraction = isDirectLiquid ? 1 : 1 - Math.exp(-kVolatile * timeHours);
+    const nonVolatileExtractFraction = isDirectLiquid ? 1 : 1 - Math.exp(-kNonVolatile * timeHours);
 
     // Volatile retention: some are lost to evaporation/degradation (stage × form dependent)
     const effectiveHeatLoss = stage.volatileEvaporation * form.volatileHeatLoss;
@@ -873,43 +927,58 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
         : 0.05;
 
     // Effective extraction: what actually ends up in the beer
-    const effectiveVolatileExtract = volatileExtractFraction * volatileRetention * stage.volatileExtract;
-    const effectiveNonVolatileExtract = nonVolatileExtractFraction * stage.nonVolatileExtract;
+    const effectiveVolatileExtract = isDirectLiquid
+        ? 1
+        : volatileExtractFraction * volatileRetention * stage.volatileExtract;
+    const effectiveNonVolatileExtract = isDirectLiquid
+        ? 1
+        : nonVolatileExtractFraction * stage.nonVolatileExtract;
 
-    // Reference extraction (reference form at 20°C, 72h, conditioning stage)
-    // Use the same per-ingredient rate multipliers for the reference
-    const refKVolatile = 0.03 * spice.extraction.volatileRateMultiplier;
-    const refKNonVolatile = 0.02 * spice.extraction.nonVolatileRateMultiplier;
-    const refTimeHours = 72;
-    const refVolatileFraction = 1 - Math.exp(-refKVolatile * refTimeHours);
-    const refNonVolatileFraction = 1 - Math.exp(-refKNonVolatile * refTimeHours);
-    const refStage = STAGES['conditioning'];
-    // Fix #1: include refForm.volatileHeatLoss so reference model matches real model
+    // Reference extraction — uses per-ingredient reference conditions if specified
+    // (the empirical dosage ranges were measured under these conditions)
+    const refConditions = spice.referenceConditions ?? {
+        stage: 'conditioning' as AdditionStage,
+        contactTimeHours: 72,
+        temperatureCelsius: 20,
+    };
+    const refStage = STAGES[refConditions.stage];
+    const refTimeHours = refConditions.contactTimeHours;
+    const refTempMultiplier = Math.pow(1.8, (refConditions.temperatureCelsius - 20) / 10);
+    const refKVolatile = 0.03 * refTempMultiplier * spice.extraction.volatileRateMultiplier;
+    const refKNonVolatile = 0.02 * refTempMultiplier * spice.extraction.nonVolatileRateMultiplier;
+
+    // Direct liquid doses: reference effective extraction is also 1
+    const refVolatileFraction = isDirectLiquid ? 1 : 1 - Math.exp(-refKVolatile * refTimeHours);
+    const refNonVolatileFraction = isDirectLiquid ? 1 : 1 - Math.exp(-refKNonVolatile * refTimeHours);
     const refEffectiveHeatLoss = refStage.volatileEvaporation * refForm.volatileHeatLoss;
     const refVolatileRetention = Math.exp(-refEffectiveHeatLoss * 3 * refVolatileFraction);
-    const refEffectiveVolatile = refVolatileFraction * refVolatileRetention * refStage.volatileExtract;
-    const refEffectiveNonVolatile = refNonVolatileFraction * refStage.nonVolatileExtract;
+    const refEffectiveVolatile = isDirectLiquid
+        ? 1
+        : refVolatileFraction * refVolatileRetention * refStage.volatileExtract;
+    const refEffectiveNonVolatile = isDirectLiquid
+        ? 1
+        : refNonVolatileFraction * refStage.nonVolatileExtract;
 
     // Dose = referenceDose / (relativeExtraction × relativeForm)
     // More extraction → divide → less dose
     const baseVolatileDoseDivisor = (effectiveVolatileExtract / Math.max(0.01, refEffectiveVolatile)) * relativeVolatileExtract;
     const baseNonVolatileDoseDivisor = (effectiveNonVolatileExtract / Math.max(0.01, refEffectiveNonVolatile)) * relativeNonVolatileExtract;
 
-    // ── 6. Potency / freshness ──
+    // ── 7. Potency / freshness ──
     const potencyFactor = potencyMultiplier(input.freshness);
 
-    // ── 7. Matrix factors ──
+    // ── 8. Matrix factors ──
     const matrix = computeMatrixFactors(input.beer_matrix);
 
-    // Extraction factor: ABV affects physical extraction
-    const extractionBoost = matrix.extractionFactor;
+    // Extraction factor: ABV affects physical extraction (not liquid doses)
+    const extractionBoost = isDirectLiquid ? 1 : matrix.extractionFactor;
 
     // Masking: roast & FG mask aroma perception → need MORE grams to compensate
     const aromaMasking = matrix.maskingFactor.aroma;
     // Perception amplification: >1 means the beer amplifies perceived intensity → need FEWER grams
     const aromaAmplification = matrix.perceptionAmplification.aroma;
 
-    // ── 7. Roast level adjustment (coffee, cocoa only) ──
+    // ── 9. Roast level adjustment (coffee, cocoa) and wood toast ──
     let roastAromaPotency = 1.0;
     let roastBitterness = 1.0;
     let roastAstringency = 1.0;
@@ -922,7 +991,16 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
         roastAstringency = ra.astringency;
     }
 
-    // ── 8. Blend aroma/non-volatile dose divisors ──
+    // Wood toast: affects perceived aroma and astringency (separate from coffee/cocoa roast)
+    let woodToastAroma = 1.0;
+    let woodToastAstringency = 1.0;
+    if (input.wood_toast_level && spice.category === 'wood') {
+        const wt = WOOD_TOAST[input.wood_toast_level];
+        woodToastAroma = wt.aroma;
+        woodToastAstringency = wt.astringency;
+    }
+
+    // ── 10. Blend aroma/non-volatile dose divisors ──
     // Non-volatile weight includes pungency, bitterness AND astringency
     // so cocoa/coffee/tea aren't treated as purely aromatic ingredients
     const nonVolatileWeightRaw = spice.profile.pungency
@@ -932,10 +1010,10 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const aromaWeight = spice.profile.aroma / totalWeight;
     const nonVolatileWeight = nonVolatileWeightRaw / totalWeight;
 
-    // Aroma dose: reference / (extraction * form * potency * extractionBoost * amplification * masking * roastAromaPotency)
+    // Aroma dose: reference / (extraction * form * potency * extractionBoost * amplification * masking * roastAromaPotency * woodToastAroma)
     // masking < 1 → divisor shrinks → dose increases (correct: need more grams when beer masks aroma)
     // roastAromaPotency > 1 → more aromatic potency → divisor grows → dose decreases (correct)
-    const aromaDoseDivisor = baseVolatileDoseDivisor * potencyFactor * extractionBoost * aromaAmplification * Math.max(0.4, aromaMasking) * roastAromaPotency;
+    const aromaDoseDivisor = baseVolatileDoseDivisor * potencyFactor * extractionBoost * aromaAmplification * Math.max(0.4, aromaMasking) * roastAromaPotency * woodToastAroma;
 
     // Composite non-volatile amplification: pungency, bitterness and astringency
     // are weighted by their share of the non-volatile profile, not by pungency alone.
@@ -947,20 +1025,27 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     ) / nonVolatileProfileTotal;
 
     // Dark roast raises bitterness/astringency → the sensory limit is hit sooner → less product needed
-    const nonVolatileRoastPenalty = Math.max(roastBitterness, roastAstringency);
-    const pungencyDoseDivisor = nonVolatileDoseDivisor * potencyFactor * extractionBoost * nonVolatileAmplification * nonVolatileRoastPenalty;
-    const blendedDoseDivisor = aromaDoseDivisor * aromaWeight + pungencyDoseDivisor * nonVolatileWeight;
+    // Weighted by the ingredient's relative share of bitterness vs astringency
+    const roastNonVolatileWeightTotal = spice.profile.bitterness + spice.profile.astringency + 0.01;
+    const nonVolatileRoastPenalty = (
+        spice.profile.bitterness * roastBitterness
+        + spice.profile.astringency * roastAstringency
+    ) / roastNonVolatileWeightTotal;
 
-    // ── 8b. Dose divergence check ──
-    // Compute individual target doses to detect when aroma and pungency pull in opposite directions
+    // Wood toast astringency multiplier (untoasted wood is more astringent)
+    const nonVolatileDoseDivisor = baseNonVolatileDoseDivisor * potencyFactor * extractionBoost * nonVolatileAmplification * nonVolatileRoastPenalty * woodToastAstringency;
+    const blendedDoseDivisor = aromaDoseDivisor * aromaWeight + nonVolatileDoseDivisor * nonVolatileWeight;
+
+    // ── 10b. Dose divergence check ──
+    // Compute individual target doses to detect when aroma and non-volatile pull in opposite directions
     const safeAromaDivisor = Math.max(0.15, aromaDoseDivisor);
-    const safePungencyDivisor = Math.max(0.15, pungencyDoseDivisor);
+    const safeNonVolatileDivisor = Math.max(0.15, nonVolatileDoseDivisor);
     const aromaTargetDose = refRange.recommend * (input.batch_liters / 20) / safeAromaDivisor;
-    const pungencyTargetDose = refRange.recommend * (input.batch_liters / 20) / safePungencyDivisor;
-    const doseDivergence = Math.max(aromaTargetDose, pungencyTargetDose)
-        / Math.max(0.01, Math.min(aromaTargetDose, pungencyTargetDose));
+    const nonVolatileTargetDose = refRange.recommend * (input.batch_liters / 20) / safeNonVolatileDivisor;
+    const doseDivergence = Math.max(aromaTargetDose, nonVolatileTargetDose)
+        / Math.max(0.01, Math.min(aromaTargetDose, nonVolatileTargetDose));
 
-    // ── 9. Chili: intensity-aware SHU-based reference ──
+    // ── 11. Chili: intensity-aware SHU-based reference ──
     // Empirical baseline: 1 g dried chili @ 40,000 SHU in 20L ≈ medium intensity
     // (assumes ~65% extraction; actual perception depends on matrix)
     const CHILI_REFERENCE_SHU = 40_000;
@@ -985,19 +1070,35 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
         }
     }
 
-    // ── 10. Scale from 20L reference to actual batch size, divide by efficiency ──
+    // ── 12. Scale from 20L reference to actual batch size, divide by efficiency ──
     const batchScale = input.batch_liters / 20;
     const divisorWasClamped = blendedDoseDivisor < 0.15;
     const safeDivisor = Math.max(0.15, blendedDoseDivisor);
-    const doseRecommendedG = refRec * batchScale / safeDivisor;
-    const doseMinG = refMin * batchScale / safeDivisor;
-    const doseMaxG = refMax * batchScale / safeDivisor;
+    // Liquid strength: how concentrated is the cold brew / tincture vs the reference?
+    // Reference = 200 g coffee per L water (1:5 ratio). If user provides coffee_grams_per_liter,
+    // compute a concentration factor directly. Otherwise accept liquid_strength_relative.
+    const COFFEE_REFERENCE_GRAMSPERLITER = 200;
+    const liquidStrengthFactor: number = (() => {
+        if (input.coffee_grams_per_liter && input.coffee_grams_per_liter > 0) {
+            return input.coffee_grams_per_liter / COFFEE_REFERENCE_GRAMSPERLITER;
+        }
+        if (input.liquid_strength_relative !== undefined && input.liquid_strength_relative > 0) {
+            return input.liquid_strength_relative;
+        }
+        return 1;
+    })();
+    const doseRecommended = refRec * batchScale / safeDivisor / (isDirectLiquid ? liquidStrengthFactor : 1);
+    const doseMin = refMin * batchScale / safeDivisor / (isDirectLiquid ? liquidStrengthFactor : 1);
+    const doseMax = refMax * batchScale / safeDivisor / (isDirectLiquid ? liquidStrengthFactor : 1);
+    // For liquid doses, the added volume dilutes the batch
+    const addedVolumeL = spice.doseUnit === 'ml' ? doseRecommended / 1000 : 0;
+    const dilutionPercent = addedVolumeL / input.batch_liters * 100;
 
     // ── 11. Compute sensory contributions from actual dose ──
     // effectiveDose_gL = dose × extraction × relativeForm × potency × extractionBoost / volume
     // Must match the same factors used to scale the dose, so perceived intensity is consistent
-    const effectiveVolatileDoseGL = doseRecommendedG * effectiveVolatileExtract * relativeVolatileExtract * potencyFactor * extractionBoost / input.batch_liters;
-    const effectiveNonVolatileDoseGL = doseRecommendedG * effectiveNonVolatileExtract * relativeNonVolatileExtract * potencyFactor * extractionBoost / input.batch_liters;
+    const effectiveVolatileDoseGL = doseRecommended * effectiveVolatileExtract * relativeVolatileExtract * potencyFactor * extractionBoost / input.batch_liters;
+    const effectiveNonVolatileDoseGL = doseRecommended * effectiveNonVolatileExtract * relativeNonVolatileExtract * potencyFactor * extractionBoost / input.batch_liters;
 
     // Fix #2: spice-specific EC50 derived from reference medium dose.
     // Under reference conditions, medium.recommend g/20L should produce ~50% intensity
@@ -1064,6 +1165,11 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
         }
     }
 
+    if (spice.id === 'coffee_ground' && input.intensity === 'high') {
+        confidence -= 0.15;
+        confidenceNotes.push('Caffè macinato a intensità alta: rischio elevato di sovra-estrazione. Bench trial obbligatorio prima di scalare.');
+    }
+
     if (input.form === 'ground') {
         confidence -= 0.05;
         confidenceNotes.push('Forma macinata: estrazione rapida ma difficile da rimuovere e dosare con precisione.');
@@ -1074,11 +1180,23 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     }
     if (input.freshness === 'unknown') {
         confidence -= 0.10;
-        confidenceNotes.push('Freschezza sconosciuta: l\'olio essenziale potrebbe essere degradato.');
+        confidenceNotes.push('Freschezza / condizione di conservazione sconosciuta: il profilo aromatico potrebbe essere degradato.');
     }
     if (input.freshness === 'older') {
         confidence -= 0.15;
-        confidenceNotes.push('Spezia non fresca: perdita significativa di volatili attesa.');
+        confidenceNotes.push('Ingrediente conservato a lungo: possibile perdita di aromaticità o alterazione del profilo.');
+    }
+
+    // Cold brew concentration not declared
+    if (spice.id === 'cold_brew_coffee' && !input.coffee_grams_per_liter && !input.liquid_strength_relative) {
+        confidence -= 0.15;
+        confidenceNotes.push('Concentrazione del cold brew non dichiarata: la stima assume circa 200 g di caffè per litro d\'acqua (rapporto 1:5).');
+    }
+
+    // Cold brew age since preparation
+    if (spice.id === 'cold_brew_coffee' && input.prepared_hours_ago !== undefined && input.prepared_hours_ago > 48) {
+        confidence -= 0.10;
+        confidenceNotes.push(`Cold brew preparato da ${input.prepared_hours_ago} ore: possibile ossidazione e perdita di volatili delicati.`);
     }
     if (input.contact_time_hours > 168) {
         confidence -= 0.05;
@@ -1126,8 +1244,8 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
 
     // ── 14. Adjustment protocol ──
     const sampleLiters = 0.2;
-    const sampleDoseG = doseRecommendedG * sampleLiters / input.batch_liters;
-    const isMicroscopicDose = sampleDoseG < 0.1;
+    const sampleDose = doseRecommended * sampleLiters / input.batch_liters;
+    const isMicroscopicDose = spice.doseUnit === 'g' && sampleDose < 0.1;
 
     const adjustmentProtocol = input.stage === 'tincture'
         ? `1. Preparare tintura separata (${spice.name} in alcool neutro 40-50% per 7-14 giorni). 2. Prelevare 100 mL di birra. 3. Aggiungere tintura goccia a goccia, assaggiare. 4. Annotare gocce necessarie. 5. Scalare: (gocce × volume_totale / 100) = gocce totali.`
@@ -1136,11 +1254,13 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
             `2. Estrarre 7 giorni, agitando quotidianamente, quindi filtrare. ` +
             `3. La tintura rappresenta ~10 mg/mL di spezia caricata (non necessariamente estratta). ` +
             `4. Prelevare 200 mL di birra. ` +
-            `5. Aggiungere ${(sampleDoseG * 100).toFixed(1)} mL di tintura. ` +
+            `5. Aggiungere ${(sampleDose * 100).toFixed(1)} mL di tintura. ` +
             `6. Mescolare, attendere 10-15 minuti e assaggiare. ` +
             `7. Ripetere a incrementi del 10-20%. ` +
             `Nota: il bench trial con tintura approssima il dosaggio aromatico, ma non necessariamente lo stesso rapporto aroma/amaro/astringenza del contatto diretto.`
-            : `1. Preparare un bench trial: prelevare 200 mL di birra. 2. Aggiungere ${sampleDoseG.toFixed(1)} g di spezia. 3. Assaggiare dopo ${input.contact_time_hours <= 12 ? input.contact_time_hours : 12} ore. 4. Regolare la dose principale proporzionalmente. 5. Se possibile, usare infusione rimovibile e assaggiare ogni 12-24 ore.`;
+            : spice.doseUnit === 'ml'
+                ? `1. Preparare un bench trial: prelevare 200 mL di birra. 2. Aggiungere ${sampleDose.toFixed(1)} mL di concentrato. 3. Mescolare, attendere 10-15 minuti e assaggiare. 4. Regolare la dose principale proporzionalmente.`
+                : `1. Preparare un bench trial: prelevare 200 mL di birra. 2. Aggiungere ${sampleDose.toFixed(1)} g di spezia. 3. Assaggiare dopo ${input.contact_time_hours <= 12 ? input.contact_time_hours : 12} ore. 4. Regolare la dose principale proporzionalmente. 5. Se possibile, usare infusione rimovibile e assaggiare ogni 12-24 ore.`;
 
     // ── 15. Risks ──
     const risks = [...spice.risks];
@@ -1186,9 +1306,11 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     if (input.beer_matrix.acidity > 0.3) tips.push('Birra acida: esalta freschezza e agrumi ma può rendere aggressivi zenzero, peperoncino e chiodo di garofano.');
 
     return {
-        doseRecommendedG: Math.round(doseRecommendedG * 10) / 10,
-        doseMinG: Math.round(doseMinG * 10) / 10,
-        doseMaxG: Math.round(doseMaxG * 10) / 10,
+        doseRecommended: Math.round(doseRecommended * 10) / 10,
+        doseMin: Math.round(doseMin * 10) / 10,
+        doseMax: Math.round(doseMax * 10) / 10,
+        doseUnit: spice.doseUnit,
+        dilutionPercent: spice.doseUnit === 'ml' ? Math.round(dilutionPercent * 10) / 10 : undefined,
         contributions: {
             aroma: Math.round(contributions.aroma * 100),
             pungency: Math.round(contributions.pungency * 100),
@@ -1208,9 +1330,10 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
 
 function buildChiliUnknownResult(spice: SpiceInfo, input: SpiceCalcInput): SpiceDoseOutput {
     return {
-        doseRecommendedG: 0,
-        doseMinG: 0,
-        doseMaxG: 0,
+        doseRecommended: 0,
+        doseMin: 0,
+        doseMax: 0,
+        doseUnit: spice.doseUnit,
         contributions: { aroma: 0, pungency: 0, bitterness: 0, astringency: 0, cooling: 0 },
         confidence: 0.15,
         confidenceNotes: [
@@ -1268,7 +1391,7 @@ function formatSpiceResults(input: SpiceCalcInput, showDetails: boolean): string
 
     const matches = findAllSpiceMatches(input.spice_name);
     if (matches.length === 0) {
-        lines.push(`⚠️ **"${input.spice_name}" non trovata.** Spezie disponibili:`);
+        lines.push(`⚠️ **"${input.spice_name}" non trovato.** Ingredienti disponibili:`);
         for (const s of SPICES) lines.push(`- ${s.name}`);
         return lines.join('\n');
     }
@@ -1284,14 +1407,14 @@ function formatSpiceResults(input: SpiceCalcInput, showDetails: boolean): string
     lines.push('');
     lines.push('| Parametro | Valore |');
     lines.push('|---|---|');
-    lines.push(`| Spezia | **${spice.name}** |`);
+    lines.push(`| Ingrediente | **${spice.name}** |`);
     if (ambiguous.length > 0) lines.push(`| ⚠️ Ambiguità | Trovati anche: ${ambiguous.join(', ')}. Specifica il nome esatto. |`);
     lines.push(`| Intensità desiderata | **${input.intensity === 'low' ? 'Bassa' : input.intensity === 'medium' ? 'Media' : 'Alta'}** |`);
     lines.push(`| Forma | ${formLabel} |`);
     lines.push(`| Stadio | ${stageLabel} |`);
     lines.push(`| Tempo di contatto | ${input.contact_time_hours} ore |`);
     lines.push(`| Temperatura | ${input.temperature_celsius}°C |`);
-    lines.push(`| Freschezza | ${input.freshness === 'freshly_cracked' ? 'Appena spezzata/macinata' : input.freshness === 'recent' ? 'Recente' : input.freshness === 'older' ? 'Non freschissima' : 'Sconosciuta'} |`);
+    lines.push(`| Freschezza | ${input.freshness === 'freshly_cracked' ? 'Appena aperto, macinato o preparato' : input.freshness === 'recent' ? 'Recente / ben conservato' : input.freshness === 'older' ? 'Conservazione prolungata' : 'Condizione sconosciuta'} |`);
     lines.push(`| Volume birra | ${input.batch_liters} L |`);
     lines.push(`| ABV | ${input.beer_matrix.abv}% |`);
     if (input.beer_matrix.finalGravity) lines.push(`| FG | ${input.beer_matrix.finalGravity.toFixed(3)} |`);
@@ -1308,20 +1431,26 @@ function formatSpiceResults(input: SpiceCalcInput, showDetails: boolean): string
     lines.push('');
 
     // ── Dosage ──
+    const fmtUnit = result.doseUnit === 'ml' ? 'mL' : 'g';
+    const fmtPerLiter = result.doseUnit === 'ml' ? 'mL/L' : 'g/L';
     lines.push('## 🎯 Dosaggio consigliato');
     lines.push('');
-    lines.push(`| | Grammi | g/L |`);
+    lines.push(`| | ${result.doseUnit === 'ml' ? 'Millilitri' : 'Grammi'} | ${fmtPerLiter} |`);
     lines.push(`|---|---|---|`);
-    if (result.doseRecommendedG > 0) {
-        lines.push(`| **Consigliato** | **${result.doseRecommendedG.toFixed(1)} g** | ${(result.doseRecommendedG / input.batch_liters).toFixed(2)} g/L |`);
-        lines.push(`| Min | ${result.doseMinG.toFixed(1)} g | ${(result.doseMinG / input.batch_liters).toFixed(2)} g/L |`);
-        lines.push(`| Max | ${result.doseMaxG.toFixed(1)} g | ${(result.doseMaxG / input.batch_liters).toFixed(2)} g/L |`);
+    if (result.doseRecommended > 0) {
+        lines.push(`| **Consigliato** | **${result.doseRecommended.toFixed(1)} ${fmtUnit}** | ${(result.doseRecommended / input.batch_liters).toFixed(2)} ${fmtPerLiter} |`);
+        lines.push(`| Min | ${result.doseMin.toFixed(1)} ${fmtUnit} | ${(result.doseMin / input.batch_liters).toFixed(2)} ${fmtPerLiter} |`);
+        lines.push(`| Max | ${result.doseMax.toFixed(1)} ${fmtUnit} | ${(result.doseMax / input.batch_liters).toFixed(2)} ${fmtPerLiter} |`);
     } else {
         lines.push(`| **Consigliato** | **NON DETERMINABILE** | — |`);
         lines.push(`| Min | NON DETERMINABILE | — |`);
         lines.push(`| Max | NON DETERMINABILE | — |`);
     }
     lines.push('');
+    if (result.dilutionPercent !== undefined && result.dilutionPercent > 0) {
+        lines.push(`> 💧 Il concentrato aggiunge **~${result.dilutionPercent.toFixed(1)}%** di volume al batch: considerare la diluizione nel calcolo di ABV e densità.`);
+        lines.push('');
+    }
     lines.push(`**Confidenza:** ${confidenceLabel(result.confidence)} (${(result.confidence * 100).toFixed(0)}%)`);
     lines.push('');
     lines.push('> ⚠️ Intervallo indicativo basato su euristiche sensoriali ed empiriche. La potenza reale dipende dal lotto specifico, dall\'origine e dalla cultivar. **Fare sempre un bench trial.**');
@@ -1363,7 +1492,7 @@ function formatSpiceResults(input: SpiceCalcInput, showDetails: boolean): string
 
     // ── Compatibility (detail section) ──
     if (showDetails && result.compatibilityNotes.length > 0) {
-        lines.push('## 🔗 Compatibilità con altre spezie');
+        lines.push('## 🔗 Compatibilità con altri ingredienti');
         lines.push('');
         for (const c of result.compatibilityNotes) {
             lines.push(`- ${c}`);
@@ -1403,8 +1532,8 @@ function formatSpiceResults(input: SpiceCalcInput, showDetails: boolean): string
         if (spice.fatRangePercent) {
             lines.push(`**Lipidi / grassi:** ~${spice.fatRangePercent[0].toFixed(1)}–${spice.fatRangePercent[1].toFixed(1)}% (può influenzare ritenzione schiuma)`);
         }
-        if (spice.perceptionProfile === 'building') lines.push('**Profilo pungenza:** si accumula gradualmente — non giudicare dal primo assaggio.');
-        if (spice.perceptionProfile === 'persistent') lines.push('**Profilo pungenza:** molto persistente — può dominare anche a dosi moderate.');
+        if (spice.perceptionProfile === 'building') lines.push('**Profilo percettivo:** si accumula gradualmente — non giudicare dal primo assaggio.');
+        if (spice.perceptionProfile === 'persistent') lines.push('**Profilo percettivo:** molto persistente — può dominare anche a dosi moderate.');
         lines.push('');
 
         // ── Sensory profile radar summary (detail) ──
@@ -1421,13 +1550,14 @@ function formatSpiceResults(input: SpiceCalcInput, showDetails: boolean): string
         lines.push('');
 
         // ── All intensities table (detail) ──
+        const refUnit = spice.doseUnit === 'ml' ? 'mL' : 'g';
         lines.push('## 📋 Tabella per tutte le intensità');
         lines.push('');
-        lines.push('| Intensità | g (per 20L, forma di riferimento) | Note |');
+        lines.push(`| Intensità | ${refUnit} (per 20L, forma di riferimento) | Note |`);
         lines.push('|---|---|---|');
-        lines.push(`| Bassa | ${spice.low.min}–${spice.low.max} g | ${spice.low.recommend > 0 ? `consigliato ~${spice.low.recommend} g` : 'non determinabile senza SHU'} |`);
-        lines.push(`| Media | ${spice.medium.min}–${spice.medium.max} g | ${spice.medium.recommend > 0 ? `consigliato ~${spice.medium.recommend} g` : 'non determinabile senza SHU'} |`);
-        lines.push(`| Alta | ${spice.high.min}–${spice.high.max} g | ${spice.high.recommend > 0 ? `consigliato ~${spice.high.recommend} g` : 'non determinabile senza SHU'} |`);
+        lines.push(`| Bassa | ${spice.low.min}–${spice.low.max} ${refUnit} | ${spice.low.recommend > 0 ? `consigliato ~${spice.low.recommend} ${refUnit}` : 'non determinabile senza SHU'} |`);
+        lines.push(`| Media | ${spice.medium.min}–${spice.medium.max} ${refUnit} | ${spice.medium.recommend > 0 ? `consigliato ~${spice.medium.recommend} ${refUnit}` : 'non determinabile senza SHU'} |`);
+        lines.push(`| Alta | ${spice.high.min}–${spice.high.max} ${refUnit} | ${spice.high.recommend > 0 ? `consigliato ~${spice.high.recommend} ${refUnit}` : 'non determinabile senza SHU'} |`);
         lines.push('');
         lines.push(`*Forma di riferimento: ${FORMS[spice.referenceForm].label} — ${spice.notes}*`);
         lines.push('');
@@ -1447,7 +1577,8 @@ function isChiliInput(input: SpiceCalcInput): boolean {
 // ── Input schema ─────────────────────────────────────────────────────────────
 
 export const SpiceCalculatorInputSchema = z.object({
-    spice_name: z.string().trim().min(1).describe('Nome della spezia principale in italiano. Es: "Pepe nero", "Coriandolo", "Cannella".'),
+    ingredient_name: z.string().trim().min(1).optional().describe('Nome dell\'ingrediente botanico in italiano. Es: "Pepe nero", "Coriandolo", "Cold brew coffee". Alternativa preferita a spice_name.'),
+    spice_name: z.string().trim().min(1).optional().describe('Alias legacy di ingredient_name (deprecato, usare ingredient_name).'),
     batch_liters: z.number().positive().describe('Volume della birra a cui aggiungere la spezia (L).'),
     intensity: z.enum(['low', 'medium', 'high']).default('medium').describe('Intensità desiderata: low, medium, high.'),
     form: z.enum(['whole', 'cracked', 'ground', 'fresh', 'dried']).default('cracked').describe('Forma fisica della spezia.'),
@@ -1458,15 +1589,27 @@ export const SpiceCalculatorInputSchema = z.object({
     capsaicinoids_mg_per_g: z.number().positive().optional().describe('Solo per peperoncino: capsaicinoidi in mg/g.'),
     shu: z.number().positive().optional().describe('Solo per peperoncino: gradi Scoville (SHU).'),
     roast_level: z.enum(['light', 'medium', 'dark']).optional().describe('Livello di tostatura per cacao e caffè: light, medium, dark.'),
+    wood_toast_level: z.enum(['untoasted', 'light', 'medium', 'heavy']).optional().describe('Livello di tostatura per legni (rovere): untoasted, light, medium, heavy.'),
+    liquid_strength_relative: z.number().positive().optional().describe('Per dosi liquide: concentrazione relativa vs riferimento (1.0 = cold brew 1:5).'),
+    coffee_grams_per_liter: z.number().positive().optional().describe('Per cold brew: grammi di caffè per litro d\'acqua usati nella preparazione.'),
+    prepared_hours_ago: z.number().min(0).optional().describe('Per dosi liquide: ore trascorse dalla preparazione del concentrato.'),
     abv: z.number().min(0).max(20).default(5).describe('ABV della birra (%).'),
     final_gravity: z.number().min(1.000).max(1.200).optional().describe('Gravità finale (es. 1.012).'),
     ibu: z.number().min(0).max(200).optional().describe('IBU della birra.'),
     roast_intensity: z.number().min(0).max(1).default(0).describe('Intensità dei malti tostati (0-1).'),
     hop_aroma_intensity: z.number().min(0).max(1).default(0).describe('Intensità aromatica del luppolo (0-1).'),
     acidity: z.number().min(0).max(1).default(0).describe('Acidità percepita (0-1, 0=non acida).'),
-    other_spices: z.array(z.string().trim().min(1)).default([]).describe('Altre spezie già presenti nella ricetta.'),
+    other_spices: z.array(z.string().trim().min(1)).default([]).describe('Altri ingredienti botanici già presenti nella ricetta.'),
+    other_adjuncts: z.array(z.string().trim().min(1)).optional().describe('Alias di other_spices (uniti durante la risoluzione).'),
     show_details: z.boolean().default(true).describe('Mostra dettagli completi.'),
 }).superRefine((input, ctx) => {
+    if (!input.ingredient_name && !input.spice_name) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['ingredient_name'],
+            message: 'Fornire ingredient_name (o l\'alias legacy spice_name).',
+        });
+    }
     if (input.stage === 'mash' && input.contact_time_hours > 3) {
         ctx.addIssue({
             code: z.ZodIssueCode.custom,
@@ -1490,7 +1633,8 @@ export type SpiceCalculatorInput = z.infer<typeof SpiceCalculatorInputSchema>;
 const SPICE_CALCULATOR_PARAMETERS: Record<string, unknown> = {
     type: 'object',
     properties: {
-        spice_name: { type: 'string', description: 'Nome della spezia principale in italiano. Es: "Pepe nero", "Coriandolo", "Cannella", "Zenzero", "Chiodo di garofano".' },
+        ingredient_name: { type: 'string', description: 'Nome dell\'ingrediente botanico in italiano. Es: "Pepe nero", "Coriandolo", "Cacao in granella", "Cold brew coffee".' },
+        spice_name: { type: 'string', description: 'Alias legacy di ingredient_name (deprecato).' },
         batch_liters: { type: 'number', exclusiveMinimum: 0, description: 'Volume della birra a cui aggiungere la spezia (L).' },
         intensity: { type: 'string', enum: ['low', 'medium', 'high'], default: 'medium', description: 'Intensità desiderata: low (bassa), medium (media), high (alta).' },
         form: { type: 'string', enum: ['whole', 'cracked', 'ground', 'fresh', 'dried'], default: 'cracked', description: 'Forma fisica: whole (intero), cracked (spezzato), ground (macinato), fresh (fresco), dried (essiccato).' },
@@ -1501,6 +1645,10 @@ const SPICE_CALCULATOR_PARAMETERS: Record<string, unknown> = {
         capsaicinoids_mg_per_g: { type: 'number', exclusiveMinimum: 0, description: 'Solo per peperoncino: contenuto di capsaicinoidi in mg/g.' },
         shu: { type: 'number', exclusiveMinimum: 0, description: 'Solo per peperoncino: gradi Scoville (SHU). Es: cayenna ~40000, habanero ~200000.' },
         roast_level: { type: 'string', enum: ['light', 'medium', 'dark'], description: 'Livello di tostatura per caffè/cacao: light (chiaro), medium (medio), dark (scuro).' },
+        wood_toast_level: { type: 'string', enum: ['untoasted', 'light', 'medium', 'heavy'], description: 'Livello di tostatura per legni (rovere): untoasted, light, medium, heavy.' },
+        liquid_strength_relative: { type: 'number', exclusiveMinimum: 0, description: 'Per dosi liquide: concentrazione relativa vs riferimento (1.0 = cold brew 1:5).' },
+        coffee_grams_per_liter: { type: 'number', exclusiveMinimum: 0, description: 'Per cold brew: grammi di caffè per litro d\'acqua usati nella preparazione.' },
+        prepared_hours_ago: { type: 'number', minimum: 0, description: 'Per dosi liquide: ore trascorse dalla preparazione del concentrato.' },
         abv: { type: 'number', minimum: 0, maximum: 20, default: 5, description: 'ABV della birra (%).' },
         final_gravity: { type: 'number', minimum: 1.000, maximum: 1.200, description: 'Gravità finale (es. 1.012). Opzionale.' },
         ibu: { type: 'number', minimum: 0, maximum: 200, description: 'IBU della birra. Opzionale.' },
@@ -1511,11 +1659,16 @@ const SPICE_CALCULATOR_PARAMETERS: Record<string, unknown> = {
             type: 'array',
             items: { type: 'string', minLength: 1 },
             default: [],
-            description: 'Altre spezie già presenti nella ricetta per analisi di compatibilità.',
+            description: 'Altri ingredienti botanici già presenti nella ricetta per analisi di compatibilità.',
+        },
+        other_adjuncts: {
+            type: 'array',
+            items: { type: 'string', minLength: 1 },
+            description: 'Alias di other_spices.',
         },
         show_details: { type: 'boolean', default: true, description: 'Mostra dettagli completi (contributi sensoriali, profilo chimico, rischi).' },
     },
-    required: ['spice_name', 'batch_liters'],
+    required: ['batch_liters'],
     additionalProperties: false,
 };
 
@@ -1525,13 +1678,20 @@ export class BotanicalAdjunctCalculatorTool implements BuiltinTool<SpiceCalculat
     readonly parameters = SPICE_CALCULATOR_PARAMETERS;
 
     resolveExecution(args: SpiceCalculatorInput): ToolExecution {
+        const resolvedName = args.ingredient_name ?? args.spice_name ?? '';
+        const resolvedOthers = [
+            ...new Set([
+                ...(args.other_spices ?? []),
+                ...(args.other_adjuncts ?? []),
+            ].map(s => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').trim().toLowerCase())),
+        ];
         return {
-            description: `Botanical calc: ${args.spice_name} @ ${args.intensity}`,
+            description: `Botanical calc: ${resolvedName} @ ${args.intensity}`,
             approvalRule: this.name,
             execute: () => {
                 try {
                     const input: SpiceCalcInput = {
-                        spice_name: args.spice_name,
+                        spice_name: resolvedName,
                         batch_liters: args.batch_liters,
                         intensity: args.intensity,
                         form: args.form,
@@ -1542,6 +1702,10 @@ export class BotanicalAdjunctCalculatorTool implements BuiltinTool<SpiceCalculat
                         capsaicinoids_mg_per_g: args.capsaicinoids_mg_per_g,
                         shu: args.shu,
                         roast_level: args.roast_level,
+                        wood_toast_level: args.wood_toast_level,
+                        liquid_strength_relative: args.liquid_strength_relative,
+                        coffee_grams_per_liter: args.coffee_grams_per_liter,
+                        prepared_hours_ago: args.prepared_hours_ago,
                         beer_matrix: {
                             abv: args.abv,
                             finalGravity: args.final_gravity,
@@ -1550,7 +1714,7 @@ export class BotanicalAdjunctCalculatorTool implements BuiltinTool<SpiceCalculat
                             hopAromaIntensity: args.hop_aroma_intensity,
                             acidity: args.acidity,
                         },
-                        other_spices: args.other_spices ?? [],
+                        other_spices: resolvedOthers,
                     };
                     return Promise.resolve({ output: formatSpiceResults(input, args.show_details) });
                 } catch (e) {

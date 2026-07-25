@@ -439,7 +439,7 @@ Strumenti brassicoli specializzati: brewing_calculator (ABV, efficienza, volumi,
 \`botanical_adjunct_calculator\` stima un **intervallo** di dosaggio per ingredienti botanici nella birra. Supporta categorie: **spezie** (pepe, coriandolo, cannella, chiodi di garofano, zenzero, peperoncino con SHU, ecc.), **cacao** (nibs, polvere naturale/alcalinizzata, bucce), **caffè** (grani interi, macinato, cold brew), **tè** (Earl Grey, tè verde), **erbe** (camomilla, ibisco), **scorze** (arancia, limone), **legni** (rovere). Separa dose aromatica dalla dose chemestetica con modello saturante di estrazione. Restituisce intervallo, confidenza, rischi, profilo sensoriale e protocollo di bench trial.
 
 **Parametri principali:**
-- \`spice_name\`: nome dell'ingrediente (es. "Pepe nero", "Cacao nibs", "Caffè macinato", "Earl Grey", "Camomilla")
+- \`ingredient_name\`: nome dell'ingrediente (es. "Pepe nero", "Cacao nibs", "Caffè macinato", "Earl Grey", "Camomilla"). \`spice_name\` è un alias legacy ancora accettato.
 - \`batch_liters\`: volume batch
 - \`intensity\`: low, medium, high (default: medium)
 - \`form\`: whole, cracked, ground, fresh, dried
@@ -460,13 +460,13 @@ Strumenti brassicoli specializzati: brewing_calculator (ABV, efficienza, volumi,
 - **Wood:** Rovere (chips)
 
 **Esempi:**
-- \`botanical_adjunct_calculator({spice_name:"Pepe nero", batch_liters:20, intensity:"medium", stage:"conditioning"})\`
-- \`botanical_adjunct_calculator({spice_name:"Cacao nibs", batch_liters:20, intensity:"medium", stage:"conditioning", contact_time_hours:120})\`
-- \`botanical_adjunct_calculator({spice_name:"Caffè macinato", batch_liters:20, intensity:"medium", roast_level:"dark", stage:"conditioning", contact_time_hours:18})\`
-- \`botanical_adjunct_calculator({spice_name:"Cold brew", batch_liters:20, intensity:"medium", roast_level:"medium"})\`
-- \`botanical_adjunct_calculator({spice_name:"Earl Grey", batch_liters:20, intensity:"medium", contact_time_hours:24, temperature_celsius:4})\`
-- \`botanical_adjunct_calculator({spice_name:"Rovere", batch_liters:20, intensity:"medium", contact_time_hours:240})\`
-- \`botanical_adjunct_calculator({spice_name:"Peperoncino", batch_liters:20, shu:40000, intensity:"low"})\`
+- \`botanical_adjunct_calculator({ingredient_name:"Pepe nero", batch_liters:20, intensity:"medium", stage:"conditioning"})\`
+- \`botanical_adjunct_calculator({ingredient_name:"Cacao nibs", batch_liters:20, intensity:"medium", stage:"conditioning", contact_time_hours:120})\`
+- \`botanical_adjunct_calculator({ingredient_name:"Caffè macinato", batch_liters:20, intensity:"medium", roast_level:"dark", stage:"conditioning", contact_time_hours:18})\`
+- \`botanical_adjunct_calculator({ingredient_name:"Cold brew", batch_liters:20, intensity:"medium", roast_level:"medium"})\`
+- \`botanical_adjunct_calculator({ingredient_name:"Earl Grey", batch_liters:20, intensity:"medium", contact_time_hours:24, temperature_celsius:4})\`
+- \`botanical_adjunct_calculator({ingredient_name:"Rovere", batch_liters:20, intensity:"medium", contact_time_hours:240})\`
+- \`botanical_adjunct_calculator({ingredient_name:"Peperoncino", batch_liters:20, shu:40000, intensity:"low"})\`
 
 **Usalo SEMPRE per:** dosare spezie, cacao, caffè, tè, erbe e legni; scegliere forma/stadio/tempo; valutare rischi di sovradosaggio e interazioni; determinare il roast_level per caffè e cacao.
 
