@@ -293,7 +293,7 @@ function compute(input: FruitCalculatorInput): CalcResult {
 
     // Compute sensory contribution of other fruits
     let totalOtherReferenceGL = 0;
-    for (const other of input.other_fruits) {
+    for (const other of (input.other_fruits ?? [])) {
         const otherMatches = findAllMatches(other.fruit_name);
         if (otherMatches.length === 0) {
             throw new Error(`Altro frutto "${other.fruit_name}" non trovato nel database.`);
@@ -351,7 +351,7 @@ function compute(input: FruitCalculatorInput): CalcResult {
         initialAbv: input.initial_abv,
         tinctureAlcoholAbv: input.tincture_alcohol_abv,
         tinctureMlPerG: input.tincture_ml_per_g,
-        otherFruits: input.other_fruits,
+        otherFruits: input.other_fruits ?? [],
         ambiguousMatches,
     };
 }
@@ -386,8 +386,8 @@ function formatResults(input: FruitCalculatorInput): string {
     lines.push(`| Metodo | ${methodLabel} (~${(calc.methodEfficiency * 100).toFixed(0)}% efficienza) |`);
     if (input.beer_style !== 'other') lines.push(`| Stile | ${input.beer_style} (×${calc.styleFactor.toFixed(2)}) |`);
 
-    if (calc.otherFruits.length > 0) {
-        lines.push(`| Altri frutti | ${calc.otherFruits.length} frutto/i → riduzione ~${(calc.otherReduction * 100).toFixed(0)}% sul principale |`);
+if ((calc.otherFruits ?? []).length > 0) {
+    lines.push(`| Altri frutti | ${(calc.otherFruits ?? []).length} frutto/i → riduzione ~${(calc.otherReduction * 100).toFixed(0)}% sul principale |`);
     }
 
     if (calc.ambiguousMatches.length > 0) {
@@ -554,7 +554,7 @@ function formatResults(input: FruitCalculatorInput): string {
     for (const int of INTENSITIES) {
         // Subtract other fruits contribution (same reference-scale logic as compute)
         let otherContrib = 0;
-        for (const other of calc.otherFruits) {
+        for (const other of (calc.otherFruits ?? [])) {
             const of = findFruit(other.fruit_name);
             if (!of) continue;
             const om = METHODS[other.addition_method as AdditionMethod]!;
