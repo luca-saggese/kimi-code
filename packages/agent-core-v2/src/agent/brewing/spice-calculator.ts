@@ -62,7 +62,7 @@ interface SpiceInfo {
     /** Does pungency fade quickly or build over time? */
     pungencyProfile: 'immediate' | 'building' | 'persistent';
     /** Rough essential-oil range (% of dry weight) — for freshness modeling. */
-    oilRangePercent: [number, number];
+    oilRangePercent?: [number, number];
     /** Known risks and pitfalls. */
     risks: string[];
     /** Special handling notes. */
@@ -286,7 +286,6 @@ const SPICES: SpiceInfo[] = [
         risks: ['La cannella Cassia contiene cumarina (tossicità epatica ad alte dosi). Preferire Ceylon per dosaggi alti.', 'Astringenza fastidiosa oltre 10 g/20L in stecca', 'Può dominare tutto oltre i 15 g/20L'],
         notes: 'Usare stecche intere in infusione, rimuovere dopo 3-5 giorni. La polvere è difficile da rimuovere e torbida.',
         pungencyProfile: 'immediate',
-        oilRangePercent: [0, 0]
     },
     {
         id: 'clove', name: 'Chiodo di garofano', aliases: ['chiodi di garofano', 'chiodo', 'clove', 'cloves'],
@@ -664,7 +663,7 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
 
     // ── 5. Stage + time + temperature — saturating extraction model ──
     const stage = STAGES[input.stage];
-    const timeHours = Math.max(0.5, input.contact_time_hours);
+    const timeHours = clamp(input.contact_time_hours, 0.05, 720);
     const tempC = Math.max(0, input.temperature_celsius);
 
     // Temperature-dependent rate constant k (per hour)
@@ -677,9 +676,10 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const volatileExtractFraction = 1 - Math.exp(-kVolatile * timeHours);
     const nonVolatileExtractFraction = 1 - Math.exp(-kNonVolatile * timeHours);
 
-    // Volatile retention: some are lost to evaporation/degradation (stage-dependent)
-    const volatileRetention = stage.volatileEvaporation < 1
-        ? Math.exp(-stage.volatileEvaporation * 3 * volatileExtractFraction)
+    // Volatile retention: some are lost to evaporation/degradation (stage × form dependent)
+    const effectiveHeatLoss = stage.volatileEvaporation * form.volatileHeatLoss;
+    const volatileRetention = effectiveHeatLoss < 1
+        ? Math.exp(-effectiveHeatLoss * 3 * volatileExtractFraction)
         : 0.05;
 
     // Effective extraction: what actually ends up in the beer
@@ -720,8 +720,9 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const aromaWeight = spice.profile.aroma / (spice.profile.aroma + spice.profile.pungency + 0.01);
     const pungencyWeight = spice.profile.pungency / (spice.profile.aroma + spice.profile.pungency + 0.01);
 
-    // Aroma dose: reference / (extraction * form * potency * extractionBoost * amplification / masking)
-    const aromaDoseDivisor = volatileDoseDivisor * potencyFactor * extractionBoost * aromaAmplification / Math.max(0.4, aromaMasking);
+    // Aroma dose: reference / (extraction * form * potency * extractionBoost * amplification * masking)
+    // masking < 1 → divisor shrinks → dose increases (correct: need more grams when beer masks aroma)
+    const aromaDoseDivisor = volatileDoseDivisor * potencyFactor * extractionBoost * aromaAmplification * Math.max(0.4, aromaMasking);
     const pungencyDoseDivisor = nonVolatileDoseDivisor * potencyFactor * extractionBoost * matrix.perceptionAmplification.pungency;
     const blendedDoseDivisor = aromaDoseDivisor * aromaWeight + pungencyDoseDivisor * pungencyWeight;
 
@@ -731,16 +732,19 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     let refRec = refRange.recommend;
 
     if (isChili) {
+        // Empirical baseline: 1 g dried chili @ 40,000 SHU in 20L ≈ medium intensity
+        // (assumes ~65% extraction; actual perception depends on matrix)
+        const CHILI_REFERENCE_SHU = 40_000;
         const chiliIntensityFactor = { low: 0.4, medium: 1.0, high: 1.8 }[input.intensity];
         if (input.shu) {
-            // Target ~40,000 SHU-equivalent as medium baseline at 1 g/20L whole dried chili
-            const shuScale = 40000 / Math.max(100, input.shu);
+            const shuScale = CHILI_REFERENCE_SHU / Math.max(100, input.shu);
             refRec = 1.0 * shuScale * chiliIntensityFactor;
             refMin = refRec * 0.6;
             refMax = refRec * 1.8;
         } else if (input.capsaicinoids_mg_per_g) {
+            // Capsaicinoids in mg/g → approximate SHU: 1 mg/g ≈ 15,000 SHU
             const approxShu = input.capsaicinoids_mg_per_g * 15000;
-            const shuScale = 40000 / Math.max(1500, approxShu);
+            const shuScale = CHILI_REFERENCE_SHU / Math.max(1500, approxShu);
             refRec = 1.0 * shuScale * chiliIntensityFactor;
             refMin = refRec * 0.6;
             refMax = refRec * 1.8;
@@ -755,9 +759,10 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const doseMaxG = refMax * batchScale / safeDivisor;
 
     // ── 11. Compute sensory contributions from actual dose ──
-    // effectiveDose_gL = dose × extraction × potency / volume
-    const effectiveVolatileDoseGL = doseRecommendedG * effectiveVolatileExtract * potencyFactor / input.batch_liters;
-    const effectiveNonVolatileDoseGL = doseRecommendedG * effectiveNonVolatileExtract * potencyFactor / input.batch_liters;
+    // effectiveDose_gL = dose × extraction × relativeForm × potency × extractionBoost / volume
+    // Must match the same factors used to scale the dose, so perceived intensity is consistent
+    const effectiveVolatileDoseGL = doseRecommendedG * effectiveVolatileExtract * relativeVolatileExtract * potencyFactor * extractionBoost / input.batch_liters;
+    const effectiveNonVolatileDoseGL = doseRecommendedG * effectiveNonVolatileExtract * relativeNonVolatileExtract * potencyFactor * extractionBoost / input.batch_liters;
 
     // Half-saturation doses (g/L effective) — the dose where perception reaches 50%
     const halfSatVolatileGL = 0.5;   // 0.5 g/L effective volatiles = 50% perceived aroma
@@ -826,20 +831,21 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     }
 
     // Oil range variability
-    const [oilMin, oilMax] = spice.oilRangePercent;
-    if (oilMax > 0 && oilMin > 0 && oilMax / oilMin > 3) {
+    const oilRange = spice.oilRangePercent;
+    if (oilRange && oilRange[0] > 0 && oilRange[1] > 0 && oilRange[1] / oilRange[0] > 3) {
         confidence -= 0.10;
-        confidenceNotes.push(`Forte variabilità dell'olio essenziale (${oilMin.toFixed(1)}-${oilMax.toFixed(1)}%): due lotti possono differire significativamente.`);
+        confidenceNotes.push(`Forte variabilità dell'olio essenziale (${oilRange[0].toFixed(1)}-${oilRange[1].toFixed(1)}%): due lotti possono differire significativamente.`);
     }
 
     confidence = clamp(confidence, 0.1, 0.95);
 
     // ── 13. Method recommendation ──
+    const practicallyRemovable = stage.removable && form.removable;
     const recommendedMethod = input.stage === 'tincture'
         ? 'Tintura: aggiungere goccia a goccia su campione da 100 mL fino a intensità desiderata, poi scalare al volume totale.'
-        : stage.removable
-            ? `${stage.label}: aggiungere in sacchetto/sacco per rimozione facile. Assaggiare ogni 12-24 ore. Rimuovere quando l'intensità raggiunge ~80% del target (continuerà a estrarre brevemente dopo la rimozione).`
-            : `${stage.label}: metodo non rimovibile. Iniziare con il 70% della dose consigliata, assaggiare dopo 24 ore, aggiungere il resto se necessario.`;
+        : practicallyRemovable
+            ? `${stage.label} (${form.label}): aggiungere in sacchetto/sacco per rimozione facile. Assaggiare ogni 12-24 ore. Rimuovere quando l'intensità raggiunge ~80% del target (continuerà a estrarre brevemente dopo la rimozione).`
+            : `${stage.label} (${form.label}): metodo non rimovibile. Iniziare con il 70% della dose consigliata, assaggiare dopo 24 ore, aggiungere il resto se necessario.`;
 
     // ── 14. Adjustment protocol ──
     const sampleLiters = 0.2;
@@ -849,7 +855,14 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const adjustmentProtocol = input.stage === 'tincture'
         ? `1. Preparare tintura separata (${spice.name} in alcool neutro 40-50% per 7-14 giorni). 2. Prelevare 100 mL di birra. 3. Aggiungere tintura goccia a goccia, assaggiare. 4. Annotare gocce necessarie. 5. Scalare: (gocce × volume_totale / 100) = gocce totali.`
         : isMicroscopicDose
-            ? `1. Preparare una tintura test: 1.00 g di ${spice.name} in 100 mL di alcool neutro (concentrazione ~10 mg/mL). 2. Prelevare 200 mL di birra. 3. Aggiungere ${(sampleDoseG * 1000).toFixed(0)} mg di spezia equivalente = ${(sampleDoseG * 100).toFixed(1)} mL di tintura test. 4. Assaggiare dopo ${input.contact_time_hours <= 12 ? input.contact_time_hours : 12} ore. 5. Regolare la dose principale proporzionalmente. 6. Se possibile, usare infusione rimovibile e assaggiare ogni 12-24 ore.`
+            ? `1. Preparare una tintura madre con 1,00 g di ${spice.name} in 100 mL di alcool neutro al 40-50%. ` +
+              `2. Estrarre 7 giorni, agitando quotidianamente, quindi filtrare. ` +
+              `3. La tintura rappresenta ~10 mg/mL di spezia caricata (non necessariamente estratta). ` +
+              `4. Prelevare 200 mL di birra. ` +
+              `5. Aggiungere ${(sampleDoseG * 100).toFixed(1)} mL di tintura. ` +
+              `6. Mescolare, attendere 10-15 minuti e assaggiare. ` +
+              `7. Ripetere a incrementi del 10-20%. ` +
+              `Nota: il bench trial con tintura approssima il dosaggio aromatico, ma non necessariamente lo stesso rapporto aroma/amaro/astringenza del contatto diretto.`
             : `1. Preparare un bench trial: prelevare 200 mL di birra. 2. Aggiungere ${sampleDoseG.toFixed(1)} g di spezia. 3. Assaggiare dopo ${input.contact_time_hours <= 12 ? input.contact_time_hours : 12} ore. 4. Regolare la dose principale proporzionalmente. 5. Se possibile, usare infusione rimovibile e assaggiare ogni 12-24 ore.`;
 
     // ── 15. Risks ──
@@ -873,7 +886,7 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
             const emoji = ix.aromaCompatibility > 0.4 ? '✅' : ix.aromaCompatibility > 0 ? '⚠️' : '❌';
             compatibilityNotes.push(`${emoji} **${other.name}**: ${ix.explanation}`);
             if (ix.pungencySynergy > 0.5) {
-                risks.push(`Sinergia pungente con ${other.name}. Ridurre entrambi del ${Math.round(ix.pungencySynergy * 50)}%.`);
+                risks.push(`Sinergia pungente con ${other.name}. Valutare una riduzione iniziale fino al ${Math.round(ix.pungencySynergy * 50)}% se l'altra spezia è già dosata a intensità media o alta.`);
             }
             if (ix.bitternessRisk > 0.5) {
                 risks.push(`Rischio amaro cumulativo con ${other.name}. Considerare rimozione anticipata.`);
@@ -1103,7 +1116,11 @@ function formatSpiceResults(input: SpiceCalcInput): string {
     lines.push('');
     lines.push(`**Volatili principali:** ${spice.keyVolatiles.join(', ')}`);
     lines.push(`**Attivi non volatili:** ${spice.keyActives.join(', ')}`);
-    lines.push(`**Olio essenziale:** ~${spice.oilRangePercent[0].toFixed(1)}–${spice.oilRangePercent[1].toFixed(1)}% (variabile con origine e cultivar)`);
+    if (spice.oilRangePercent) {
+        lines.push(`**Olio essenziale:** ~${spice.oilRangePercent[0].toFixed(1)}–${spice.oilRangePercent[1].toFixed(1)}% (variabile con origine e cultivar)`);
+    } else {
+        lines.push('**Olio essenziale:** dato non calibrato nel database');
+    }
     if (spice.pungencyProfile === 'building') lines.push('**Profilo pungenza:** si accumula gradualmente — non giudicare dal primo assaggio.');
     if (spice.pungencyProfile === 'persistent') lines.push('**Profilo pungenza:** molto persistente — può dominare anche a dosi moderate.');
     lines.push('');
