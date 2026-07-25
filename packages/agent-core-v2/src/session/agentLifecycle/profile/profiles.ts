@@ -130,6 +130,7 @@ const BRASSICOLO_TOOLS = [
   'recipe_list',
   'brewday_log',
   'fruit_calculator',
+  'spice_calculator',
 ] as const;
 
 const CODER_ROLE =
@@ -411,7 +412,7 @@ Puoi esportare le ricette YAML in PDF con yaml_to_pdf e in DOCX con yaml_to_docx
 
 ## STRUMENTI
 
-Strumenti brassicoli specializzati: brewing_calculator (ABV, efficienza, volumi, ecc.), water_profile_calculator (aggiustamento minerali), ibu_calculator (Tinseth/Rager/Garetz), priming_calculator (dosaggio zucchero), recipe_validator (validazione BJCP), inventory_search (magazzino virtuale), fruit_calculator (dosaggio frutta), yaml_to_pdf (esporta ricetta in PDF), yaml_to_docx (esporta ricetta in DOCX). Per lettura/scrittura file e web: Read, Write, Grep, Glob, Bash, WebSearch, FetchURL.
+Strumenti brassicoli specializzati: brewing_calculator (ABV, efficienza, volumi, ecc.), water_profile_calculator (aggiustamento minerali), ibu_calculator (Tinseth/Rager/Garetz), priming_calculator (dosaggio zucchero), recipe_validator (validazione BJCP), inventory_search (magazzino virtuale), fruit_calculator (dosaggio frutta), spice_calculator (dosaggio spezie), yaml_to_pdf (esporta ricetta in PDF), yaml_to_docx (esporta ricetta in DOCX). Per lettura/scrittura file e web: Read, Write, Grep, Glob, Bash, WebSearch, FetchURL.
 
 ### fruit_calculator — DOSAGGIO FRUTTA PER FRUIT BEERS
 
@@ -432,6 +433,34 @@ Strumenti brassicoli specializzati: brewing_calculator (ABV, efficienza, volumi,
 - \`fruit_calculator({fruit_name:"Fragola", batch_size_liters:20, intensity:"leggero", fruit_form:"lyophilized", addition_method:"tincture"})\`
 
 **Usalo SEMPRE per:** dosare la frutta in una ricetta, confrontare formati (fresco vs liofilizzato), decidere l'intensità giusta per uno stile, verificare l'impatto ABV della frutta.
+
+### spice_calculator — DOSAGGIO SPEZIE E AROMATIZZANTI
+
+\`spice_calculator\` stima un **intervallo** di dosaggio per spezie e aromatizzanti. Separa la dose aromatica (volatili come terpeni e fenoli) dalla dose chemestetica (pungenza, calore, astringenza). Considera forma fisica, stadio di aggiunta, tempo e temperatura di contatto, matrice della birra (ABV, FG, IBU, tostato, acidità), freschezza e interazioni tra spezie multiple. Restituisce **intervallo, livello di confidenza, rischi, profilo sensoriale atteso e protocollo di aggiustamento** — mai un numero preciso isolato.
+
+**Parametri principali:**
+- \`spice_name\`: nome della spezia in italiano (es. "Pepe nero", "Coriandolo", "Chiodo di garofano", "Zenzero")
+- \`batch_liters\`: volume batch
+- \`intensity\`: low, medium, high (default: medium)
+- \`form\`: whole, cracked, ground, fresh, dried, tincture, extract
+- \`stage\`: mash, boil, whirlpool, fermentation, conditioning, keg, tincture
+- \`contact_time_hours\`: ore di contatto previste (default: 72)
+- \`temperature_celsius\`: temperatura durante il contatto (default: 20)
+- \`freshness\`: freshly_cracked, recent, older, unknown
+- \`abv\`, \`final_gravity\`, \`ibu\`: parametri della birra
+- \`roast_intensity\`, \`hop_aroma_intensity\`, \`acidity\`: 0–1
+- \`other_spices\`: array di altre spezie già presenti per analisi di compatibilità
+- Solo peperoncino: \`shu\` (Scoville) o \`capsaicinoids_mg_per_g\`
+
+**Spezie supportate:** Pepe nero, Coriandolo, Cannella, Chiodo di garofano, Anice stellato, Zenzero, Peperoncino, Cardamomo, Noce moscata, Macis, Vaniglia, Finocchio, Grani del paradiso, Pimento, Scorza arancia/limone, Pepe di Sichuan, Pepe lungo, Fava tonka, Ginepro.
+
+**Esempi:**
+- \`spice_calculator({spice_name:"Pepe nero", batch_liters:20, intensity:"medium", stage:"conditioning"})\`
+- \`spice_calculator({spice_name:"Coriandolo", batch_liters:23, intensity:"low", form:"cracked", stage:"whirlpool", contact_time_hours:0.5, temperature_celsius:85, other_spices:["Scorza d'arancia"]})\`
+- \`spice_calculator({spice_name:"Peperoncino", batch_liters:20, shu:40000, intensity:"low"})\`
+- \`spice_calculator({spice_name:"Chiodo di garofano", batch_liters:20, intensity:"low", other_spices:["Cannella", "Noce moscata"]})\`
+
+**Usalo SEMPRE per:** dosare qualsiasi spezia o aromatizzante, valutare compatibilità tra spezie multiple, decidere forma/stadio/tempo di contatto, capire i rischi di sovradosaggio o interazioni negative.
 
 ### recipe_list — ELENCO RICETTE SALVATE
 
