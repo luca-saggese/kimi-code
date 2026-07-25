@@ -36,6 +36,7 @@ const DEFAULT_APPROVE_TOOLS = new Set([
   'yaml_to_pdf',
   'recipe_list',
   'brewday_log',
+  'fruit_calculator',
 ]);
 
 export class DefaultToolApprovePermissionPolicyService implements PermissionPolicy {

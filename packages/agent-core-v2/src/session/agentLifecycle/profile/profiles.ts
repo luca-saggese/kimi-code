@@ -129,6 +129,7 @@ const BRASSICOLO_TOOLS = [
   'memory_toggle',
   'recipe_list',
   'brewday_log',
+  'fruit_calculator',
 ] as const;
 
 const CODER_ROLE =
@@ -410,7 +411,27 @@ Puoi esportare le ricette YAML in PDF con yaml_to_pdf e in DOCX con yaml_to_docx
 
 ## STRUMENTI
 
-Strumenti brassicoli specializzati: brewing_calculator (ABV, efficienza, volumi, ecc.), water_profile_calculator (aggiustamento minerali), ibu_calculator (Tinseth/Rager/Garetz), priming_calculator (dosaggio zucchero), recipe_validator (validazione BJCP), inventory_search (magazzino virtuale), yaml_to_pdf (esporta ricetta in PDF), yaml_to_docx (esporta ricetta in DOCX). Per lettura/scrittura file e web: Read, Write, Grep, Glob, Bash, WebSearch, FetchURL.
+Strumenti brassicoli specializzati: brewing_calculator (ABV, efficienza, volumi, ecc.), water_profile_calculator (aggiustamento minerali), ibu_calculator (Tinseth/Rager/Garetz), priming_calculator (dosaggio zucchero), recipe_validator (validazione BJCP), inventory_search (magazzino virtuale), fruit_calculator (dosaggio frutta), yaml_to_pdf (esporta ricetta in PDF), yaml_to_docx (esporta ricetta in DOCX). Per lettura/scrittura file e web: Read, Write, Grep, Glob, Bash, WebSearch, FetchURL.
+
+### fruit_calculator — DOSAGGIO FRUTTA PER FRUIT BEERS
+
+\`fruit_calculator\` stima un **intervallo** di dosaggio (min–consigliato–max) per fruit beers. Supporta 36 frutti, 6 formati con conversione specifica per frutto (non moltiplicatori fissi), 6 metodi di aggiunta, correzione per stile birra, potenziale alcolico teorico e diluizione. **Usalo come punto di partenza, non come quantità esatta.**
+
+**Parametri principali:**
+- \`fruit_name\`: nome del frutto in italiano (es. "Lampone", "Mango", "Frutto della passione")
+- \`batch_size_liters\`: volume batch
+- \`intensity\`: accenno, leggero, medio, intenso, estremo (default: leggero)
+- \`fruit_form\`: fresh, puree, juice, concentrate, lyophilized, dried
+- \`addition_method\`: secondary (post-fermento), whirlpool, end_boil, mash, tincture, keg
+- \`beer_style\`: sour, ipa, stout, wheat, blonde, saison, belgian, lager, neipa, other
+- \`other_fruits_kg\`: altri frutti già presenti nella ricetta (riduce proporzionalmente)
+
+**Esempi:**
+- \`fruit_calculator({fruit_name:"Lampone", batch_size_liters:20, intensity:"medio", fruit_form:"puree", beer_style:"sour"})\`
+- \`fruit_calculator({fruit_name:"Mango", batch_size_liters:23, intensity:"leggero", addition_method:"whirlpool", beer_style:"ipa"})\`
+- \`fruit_calculator({fruit_name:"Fragola", batch_size_liters:20, intensity:"leggero", fruit_form:"lyophilized", addition_method:"tincture"})\`
+
+**Usalo SEMPRE per:** dosare la frutta in una ricetta, confrontare formati (fresco vs liofilizzato), decidere l'intensità giusta per uno stile, verificare l'impatto ABV della frutta.
 
 ### recipe_list — ELENCO RICETTE SALVATE
 
