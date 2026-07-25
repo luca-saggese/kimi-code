@@ -158,14 +158,15 @@ interface BeerMatrixInput {
  */
 function computeMatrixFactors(m: BeerMatrixInput) {
     const abv = m.abv;
-    const fg = m.finalGravity ?? 1.012;
+    const fg = m.finalGravity ?? 1.008;
 
     // ABV: increases solubility of apolar compounds → higher extraction
     const abvExtraction = 1 + Math.max(0, (abv - 4.5) * 0.06);
     // ABV also amplifies warm/pungent sensation
     const abvPerceptionWarm = 1 + Math.max(0, (abv - 5) * 0.08);
 
-    // FG: masks delicate aromas linearly but clamped to plausible range
+    // FG: masks delicate aromas. Baseline FG 1.008 produces no masking;
+    // every point above that reduces perceived aroma.
     const fgAbove = Math.max(0, (fg - 1.008) * 1000);
     const fgMaskAroma = clamp(1 - fgAbove * 0.006, 0.50, 1.05);
 
@@ -734,14 +735,14 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
         / Math.max(0.01, Math.min(aromaTargetDose, pungencyTargetDose));
 
     // ── 9. Chili: intensity-aware SHU-based reference ──
+    // Empirical baseline: 1 g dried chili @ 40,000 SHU in 20L ≈ medium intensity
+    // (assumes ~65% extraction; actual perception depends on matrix)
+    const CHILI_REFERENCE_SHU = 40_000;
     let refMin = refRange.min;
     let refMax = refRange.max;
     let refRec = refRange.recommend;
 
     if (isChili) {
-        // Empirical baseline: 1 g dried chili @ 40,000 SHU in 20L ≈ medium intensity
-        // (assumes ~65% extraction; actual perception depends on matrix)
-        const CHILI_REFERENCE_SHU = 40_000;
         const chiliIntensityFactor = { low: 0.4, medium: 1.0, high: 1.8 }[input.intensity];
         if (input.shu) {
             const shuScale = CHILI_REFERENCE_SHU / Math.max(100, input.shu);
@@ -775,7 +776,15 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     // Fix #2: spice-specific EC50 derived from reference medium dose.
     // Under reference conditions, medium.recommend g/20L should produce ~50% intensity
     // for the dominant dimension, so "medium" actually maps to a medium contribution.
-    const refMediumDoseGL = spice.medium.recommend / 20;
+    // Chili is special: its database doses are zero; use the SHU-scaled dose instead.
+    const calibrationMediumDoseG = isChili
+        ? (() => {
+              const capsaicinoidShu = (input.capsaicinoids_mg_per_g ?? 0) * 15000;
+              const effectiveShu = input.shu ?? (capsaicinoidShu > 0 ? capsaicinoidShu : 40_000);
+              return 1.0 * CHILI_REFERENCE_SHU / Math.max(100, effectiveShu);
+          })()
+        : spice.medium.recommend;
+    const refMediumDoseGL = Math.max(0.001, calibrationMediumDoseG / 20);
     const refEffectiveVolatileGL = refMediumDoseGL * refEffectiveVolatile;
     const refEffectiveNonVolatileGL = refMediumDoseGL * refEffectiveNonVolatile;
     const halfSatVolatileGL = Math.max(0.001, refEffectiveVolatileGL);
@@ -791,13 +800,25 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const rawPungency = Math.pow(effectiveNonVolatileDoseGL, hillNPungency) /
         (Math.pow(halfSatNonVolatileGL, hillNPungency) + Math.pow(effectiveNonVolatileDoseGL, hillNPungency));
 
-    // Apply perception amplification and masking to the raw intensity
+    // Apply perception amplification and masking to the raw intensity.
+    // Profile is used as relative partition, normalized by the dominant dimension,
+    // so "medium" dose produces ~50% on the dominant dimension in reference conditions.
+    const dominantProfile = Math.max(
+        spice.profile.aroma, spice.profile.pungency, spice.profile.bitterness,
+        spice.profile.astringency, spice.profile.cooling, 0.01
+    );
+    const normAroma = spice.profile.aroma / dominantProfile;
+    const normPungency = spice.profile.pungency / dominantProfile;
+    const normBitterness = spice.profile.bitterness / dominantProfile;
+    const normAstringency = spice.profile.astringency / dominantProfile;
+    const normCooling = spice.profile.cooling / dominantProfile;
+
     const contributions = {
-        aroma: clamp01(rawAroma * spice.profile.aroma * aromaAmplification * aromaMasking),
-        pungency: clamp01(rawPungency * spice.profile.pungency * matrix.perceptionAmplification.pungency),
-        bitterness: clamp01(rawPungency * spice.profile.bitterness * matrix.perceptionAmplification.bitterness),
-        astringency: clamp01(rawPungency * spice.profile.astringency * matrix.perceptionAmplification.astringency),
-        cooling: clamp01(rawAroma * spice.profile.cooling * matrix.perceptionAmplification.cooling),
+        aroma: clamp01(rawAroma * normAroma * aromaAmplification * aromaMasking),
+        pungency: clamp01(rawPungency * normPungency * matrix.perceptionAmplification.pungency),
+        bitterness: clamp01(rawPungency * normBitterness * matrix.perceptionAmplification.bitterness),
+        astringency: clamp01(rawPungency * normAstringency * matrix.perceptionAmplification.astringency),
+        cooling: clamp01(rawAroma * normCooling * matrix.perceptionAmplification.cooling),
     };
 
     // ── 12. Confidence ──
@@ -1088,17 +1109,19 @@ function formatSpiceResults(input: SpiceCalcInput, showDetails: boolean): string
     }
     lines.push('');
 
-    // ── Sensory contributions ──
-    lines.push('## 👃 Contributi sensoriali attesi');
-    lines.push('');
-    lines.push('| Dimensione | Intensità |');
-    lines.push('|---|---|');
-    lines.push(`| Aroma | ${contributionLabel(result.contributions.aroma)} (${result.contributions.aroma}%) |`);
-    lines.push(`| Pungenza / calore | ${contributionLabel(result.contributions.pungency)} (${result.contributions.pungency}%) |`);
-    lines.push(`| Amaro | ${contributionLabel(result.contributions.bitterness)} (${result.contributions.bitterness}%) |`);
-    lines.push(`| Astringenza | ${contributionLabel(result.contributions.astringency)} (${result.contributions.astringency}%) |`);
-    lines.push(`| Raffrescante | ${contributionLabel(result.contributions.cooling)} (${result.contributions.cooling}%) |`);
-    lines.push('');
+    // ── Sensory contributions (detail section) ──
+    if (showDetails) {
+        lines.push('## 👃 Contributi sensoriali attesi');
+        lines.push('');
+        lines.push('| Dimensione | Intensità |');
+        lines.push('|---|---|');
+        lines.push(`| Aroma | ${contributionLabel(result.contributions.aroma)} (${result.contributions.aroma}%) |`);
+        lines.push(`| Pungenza / calore | ${contributionLabel(result.contributions.pungency)} (${result.contributions.pungency}%) |`);
+        lines.push(`| Amaro | ${contributionLabel(result.contributions.bitterness)} (${result.contributions.bitterness}%) |`);
+        lines.push(`| Astringenza | ${contributionLabel(result.contributions.astringency)} (${result.contributions.astringency}%) |`);
+        lines.push(`| Raffrescante | ${contributionLabel(result.contributions.cooling)} (${result.contributions.cooling}%) |`);
+        lines.push('');
+    }
 
     // ── Method recommendation ──
     lines.push('## 🔧 Metodo consigliato');
@@ -1112,8 +1135,8 @@ function formatSpiceResults(input: SpiceCalcInput, showDetails: boolean): string
     lines.push(result.adjustmentProtocol);
     lines.push('');
 
-    // ── Compatibility ──
-    if (result.compatibilityNotes.length > 0) {
+    // ── Compatibility (detail section) ──
+    if (showDetails && result.compatibilityNotes.length > 0) {
         lines.push('## 🔗 Compatibilità con altre spezie');
         lines.push('');
         for (const c of result.compatibilityNotes) {
@@ -1142,8 +1165,9 @@ function formatSpiceResults(input: SpiceCalcInput, showDetails: boolean): string
         lines.push('');
     }
 
-    // ── Key compounds ──
-    lines.push('## 🧪 Profilo chimico indicativo');
+    // ── Key compounds (detail section) ──
+    if (showDetails) {
+        lines.push('## 🧪 Profilo chimico indicativo');
     lines.push('');
     lines.push(`**Volatili principali:** ${spice.keyVolatiles.join(', ')}`);
     lines.push(`**Attivi non volatili:** ${spice.keyActives.join(', ')}`);
@@ -1156,7 +1180,7 @@ function formatSpiceResults(input: SpiceCalcInput, showDetails: boolean): string
     if (spice.pungencyProfile === 'persistent') lines.push('**Profilo pungenza:** molto persistente — può dominare anche a dosi moderate.');
     lines.push('');
 
-    // ── Sensory profile radar summary ──
+    // ── Sensory profile radar summary (detail) ──
     lines.push('### Profilo sensoriale di riferimento');
     lines.push('');
     const p = spice.profile;
@@ -1169,7 +1193,7 @@ function formatSpiceResults(input: SpiceCalcInput, showDetails: boolean): string
     lines.push('```');
     lines.push('');
 
-    // ── All intensities table ──
+    // ── All intensities table (detail) ──
     lines.push('## 📋 Tabella per tutte le intensità');
     lines.push('');
     lines.push('| Intensità | g (per 20L, forma di riferimento) | Note |');
@@ -1180,6 +1204,7 @@ function formatSpiceResults(input: SpiceCalcInput, showDetails: boolean): string
     lines.push('');
     lines.push(`*Forma di riferimento: ${FORMS[spice.referenceForm].label} — ${spice.notes}*`);
     lines.push('');
+    }
 
     lines.push('---');
     lines.push('*I dosaggi sono punti di partenza basati su euristiche sensoriali ed empiriche. La composizione chimica degli oli essenziali varia con origine, cultivar, annata e conservazione. Regola sempre in base al tuo lotto specifico e fai bench trial.*');
@@ -1214,10 +1239,6 @@ export const SpiceCalculatorInputSchema = z.object({
     other_spices: z.array(z.string().trim().min(1)).default([]).describe('Altre spezie già presenti nella ricetta.'),
     show_details: z.boolean().default(true).describe('Mostra dettagli completi.'),
 }).superRefine((input, ctx) => {
-    // Tintura come stadio richiede coerenza: solo conditioning/keg/tincture
-    if (input.stage === 'tincture' && !['conditioning', 'keg'].includes(input.stage)) {
-        // stage===tincture is fine as a separate preparation method
-    }
     if (input.stage === 'mash' && input.contact_time_hours > 3) {
         ctx.addIssue({
             code: z.ZodIssueCode.custom,
