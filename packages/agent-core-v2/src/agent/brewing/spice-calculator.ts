@@ -543,8 +543,8 @@ const SPICES: SpiceInfo[] = [
         high: { min: 120, max: 250, recommend: 180 },
         keyVolatiles: ['pyrazines', 'aldehydes', 'methylbutanal', 'phenylacetaldehyde'],
         keyActives: ['theobromine', 'caffeine', 'cocoa polyphenols'],
-        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
-        oilRangePercent: [48, 55],
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 0.65, nonVolatileRateMultiplier: 0.75 },
+        fatRangePercent: [48, 55],
         risks: ['Alto contenuto di grassi (48-55%): può ridurre ritenzione schiuma', 'Theobromina e caffeina: amaro persistente', 'Astringenza elevata con contatto prolungato oltre 7gg'],
         notes: 'Aroma cioccolato/toast/nocciola. Per stout/porter: 50-120 g/20L. Tostare leggermente prima dell\'uso per amplificare l\'aroma. Rimuovere dopo 5-7gg.',
     },
@@ -557,8 +557,8 @@ const SPICES: SpiceInfo[] = [
         high: { min: 80, max: 180, recommend: 120 },
         keyVolatiles: ['pyrazines', 'aldehydes'],
         keyActives: ['theobromine', 'caffeine', 'cocoa polyphenols'],
-        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
-        oilRangePercent: [10, 22],
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.20, nonVolatileRateMultiplier: 1.40 },
+        fatRangePercent: [10, 22],
         risks: ['Più amaro e astringente dei nibs', 'Torbidità elevata', 'Attenzione: il cacao alcalinizzato ha profilo diverso (meno acido, più scuro)'],
         notes: 'Polvere sgrassata (10-12% grassi). Sciogliere in acqua calda prima di aggiungere. Per stout/porter: 30-80 g/20L. Cacao alcalinizzato (olandese): colore più scuro, sapore più morbido.',
     },
@@ -587,8 +587,8 @@ const SPICES: SpiceInfo[] = [
         high: { min: 100, max: 200, recommend: 150 },
         keyVolatiles: ['furfuryl mercaptan', 'pyrazines', 'guaiacol', '2-methylbutanal'],
         keyActives: ['caffeine', 'chlorogenic acids', 'trigonelline'],
-        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
-        oilRangePercent: [12, 18],
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 0.45, nonVolatileRateMultiplier: 0.35 },
+        fatRangePercent: [12, 18],
         risks: ['I grani interi estraggono lentamente: 24-48h minime', 'Tostatura scura = più amaro e meno acido', 'Caffeina: amaro persistente ad alte dosi'],
         notes: 'Grani interi: estrazione lenta, aroma delicato. Per dry-bean: 40-100 g/20L, 24-48h. Usare roast_level per aggiustare il profilo. Light roast = più acido/fruttato, dark = più tostato/amaro.',
     },
@@ -596,13 +596,13 @@ const SPICES: SpiceInfo[] = [
         id: 'coffee_ground', name: 'Caffè macinato (grosso)', aliases: ['caffè macinato', 'coarse ground coffee', 'caffè macinato grosso'], category: 'coffee',
         referenceForm: 'cracked',
         profile: { aroma: 0.70, pungency: 0.0, bitterness: 0.60, astringency: 0.55, cooling: 0.0 },
-        low: { min: 30, max: 70, recommend: 50 },
-        medium: { min: 70, max: 180, recommend: 120 },
-        high: { min: 180, max: 350, recommend: 250 },
+        low: { min: 15, max: 40, recommend: 25 },
+        medium: { min: 40, max: 100, recommend: 65 },
+        high: { min: 100, max: 180, recommend: 130 },
         keyVolatiles: ['furfuryl mercaptan', 'pyrazines', 'guaiacol', '2-methylbutanal'],
         keyActives: ['caffeine', 'chlorogenic acids'],
-        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
-        oilRangePercent: [12, 18],
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.35, nonVolatileRateMultiplier: 1.50 },
+        fatRangePercent: [12, 18],
         risks: ['Macinatura fine = sovra-estrazione rapida e torbidità', 'La macinatura da french press/cold brew è ideale', 'Contatto >24h a temperatura ambiente può estrarre tannini sgradevoli'],
         notes: 'Macinatura grossa (french press). Aggiungere in sacchetto, rimuovere dopo 12-24h. Per coffee stout: 70-180 g/20L. Light roast = acidità e frutta, dark roast = tostato e cioccolato amaro.',
     },
@@ -616,7 +616,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 600, max: 1200, recommend: 900 },
         keyVolatiles: ['pyrazines', 'furfuryl derivatives'],
         keyActives: ['caffeine', 'chlorogenic acids'],
-        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
+        perceptionProfile: 'immediate', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [1, 3],
         risks: ['Attenzione: il dosaggio è in mL, non in grammi', 'Aggiunge liquido: considerare la diluizione', 'Concentrazione non standard: specificare il rapporto caffè/acqua usato'],
         notes: 'Dosaggio espresso in mL di concentrato, non in grammi di caffè. Preparare con rapporto 1:5 caffè/acqua, 18-24h a 4°C. Esempio: 200g caffè in 1L acqua fredda per 24h.',
@@ -646,7 +646,7 @@ const SPICES: SpiceInfo[] = [
         high: { min: 80, max: 160, recommend: 120 },
         keyVolatiles: ['hexanal', 'linalool', 'geraniol'],
         keyActives: ['caffeine', 'catechins', 'EGCG'],
-        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.30, nonVolatileRateMultiplier: 1.60 },
         oilRangePercent: [0.3, 1.0],
         risks: ['Molto sensibile alla temperatura: >80°C produce amaro eccessivo', 'Catechine: astringenza marcata con infusione prolungata'],
         notes: 'Dry-tea a freddo (24h) o infusione a 70°C per 10 min max. Ottimo in IPA e lager per note erbacee e fresche.',
@@ -658,7 +658,7 @@ const SPICES: SpiceInfo[] = [
         low: { min: 5, max: 15, recommend: 10 },
         medium: { min: 15, max: 40, recommend: 25 },
         high: { min: 40, max: 80, recommend: 60 },
-        keyVolatiles: ['α-bisabolol', 'chamazulene', 'apigenin'],
+        keyVolatiles: ['α-bisabolol', 'chamazulene', 'bisabolol oxides'],
         keyActives: ['apigenin', 'bisabolol'],
         perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [0.3, 1.5],
@@ -672,8 +672,8 @@ const SPICES: SpiceInfo[] = [
         low: { min: 10, max: 30, recommend: 20 },
         medium: { min: 30, max: 80, recommend: 50 },
         high: { min: 80, max: 150, recommend: 110 },
-        keyVolatiles: ['hibiscus acid', 'citric acid'],
-        keyActives: ['anthocyanins', 'hibiscus acid'],
+        keyVolatiles: ['geraniol', 'linalool', 'hexanal'],
+        keyActives: ['anthocyanins', 'hibiscus acid', 'citric acid', 'malic acid'],
         perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
         oilRangePercent: [0.2, 0.8],
         risks: ['Colore rosso intenso: può dominare visivamente', 'Acidità percepita: può sembrare più acida di quanto sia'],
@@ -685,12 +685,12 @@ const SPICES: SpiceInfo[] = [
         id: 'oak_chips', name: 'Chips di rovere', aliases: ['rovere', 'oak chips', 'chips rovere'], category: 'wood',
         referenceForm: 'dried',
         profile: { aroma: 0.45, pungency: 0.0, bitterness: 0.25, astringency: 0.45, cooling: 0.0 },
-        low: { min: 20, max: 50, recommend: 35 },
-        medium: { min: 50, max: 150, recommend: 100 },
-        high: { min: 150, max: 300, recommend: 220 },
+        low: { min: 5, max: 15, recommend: 10 },
+        medium: { min: 15, max: 40, recommend: 25 },
+        high: { min: 40, max: 80, recommend: 55 },
         keyVolatiles: ['vanillin', 'whisky lactone', 'eugenol', 'furfural'],
         keyActives: ['tannins', 'lignins'],
-        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 0.25, nonVolatileRateMultiplier: 0.30 },
         oilRangePercent: [0.5, 2.0],
         risks: ['Tostatura influenza il profilo: light = più vaniglia/cocco, dark = più tostato/affumicato', 'Tannini: astringenza con contatto prolungato oltre 14gg'],
         notes: 'Vaniglia, cocco, tostato, speziato. Tostare le chips in forno prima dell\'uso per amplificare aromi. Contatto 7-14gg, assaggiare ogni 2-3gg.',
@@ -792,12 +792,16 @@ interface SpiceCalcInput {
 }
 
 interface SpiceDoseOutput {
-    /** Recommended dose in grams. */
-    doseRecommendedG: number;
-    /** Low end of operational range. */
-    doseMinG: number;
-    /** High end of operational range. */
-    doseMaxG: number;
+    /** Recommended dose, in the ingredient's doseUnit. */
+    doseRecommended: number;
+    /** Low end of operational range, in the ingredient's doseUnit. */
+    doseMin: number;
+    /** High end of operational range, in the ingredient's doseUnit. */
+    doseMax: number;
+    /** Unit of the dose values: g or ml. */
+    doseUnit: DoseUnit;
+    /** For ml doses: dilution added to the batch, as percent of batch volume. */
+    dilutionPercent?: number;
     /** Expected perceived intensity as an integer percentage, 0-100. */
     contributions: {
         aroma: number;
@@ -887,9 +891,9 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const refEffectiveNonVolatile = refNonVolatileFraction * refStage.nonVolatileExtract;
 
     // Dose = referenceDose / (relativeExtraction × relativeForm)
-    // More extraction → divide → less grams
-    const volatileDoseDivisor = (effectiveVolatileExtract / Math.max(0.01, refEffectiveVolatile)) * relativeVolatileExtract;
-    const nonVolatileDoseDivisor = (effectiveNonVolatileExtract / Math.max(0.01, refEffectiveNonVolatile)) * relativeNonVolatileExtract;
+    // More extraction → divide → less dose
+    const baseVolatileDoseDivisor = (effectiveVolatileExtract / Math.max(0.01, refEffectiveVolatile)) * relativeVolatileExtract;
+    const baseNonVolatileDoseDivisor = (effectiveNonVolatileExtract / Math.max(0.01, refEffectiveNonVolatile)) * relativeNonVolatileExtract;
 
     // ── 6. Potency / freshness ──
     const potencyFactor = potencyMultiplier(input.freshness);
@@ -928,10 +932,23 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const aromaWeight = spice.profile.aroma / totalWeight;
     const nonVolatileWeight = nonVolatileWeightRaw / totalWeight;
 
-    // Aroma dose: reference / (extraction * form * potency * extractionBoost * amplification * masking)
+    // Aroma dose: reference / (extraction * form * potency * extractionBoost * amplification * masking * roastAromaPotency)
     // masking < 1 → divisor shrinks → dose increases (correct: need more grams when beer masks aroma)
-    const aromaDoseDivisor = volatileDoseDivisor * potencyFactor * extractionBoost * aromaAmplification * Math.max(0.4, aromaMasking) / roastAromaPotency;
-    const pungencyDoseDivisor = nonVolatileDoseDivisor * potencyFactor * extractionBoost * matrix.perceptionAmplification.pungency;
+    // roastAromaPotency > 1 → more aromatic potency → divisor grows → dose decreases (correct)
+    const aromaDoseDivisor = baseVolatileDoseDivisor * potencyFactor * extractionBoost * aromaAmplification * Math.max(0.4, aromaMasking) * roastAromaPotency;
+
+    // Composite non-volatile amplification: pungency, bitterness and astringency
+    // are weighted by their share of the non-volatile profile, not by pungency alone.
+    const nonVolatileProfileTotal = spice.profile.pungency + spice.profile.bitterness + spice.profile.astringency + 0.01;
+    const nonVolatileAmplification = (
+        spice.profile.pungency * matrix.perceptionAmplification.pungency
+        + spice.profile.bitterness * matrix.perceptionAmplification.bitterness
+        + spice.profile.astringency * matrix.perceptionAmplification.astringency
+    ) / nonVolatileProfileTotal;
+
+    // Dark roast raises bitterness/astringency → the sensory limit is hit sooner → less product needed
+    const nonVolatileRoastPenalty = Math.max(roastBitterness, roastAstringency);
+    const pungencyDoseDivisor = nonVolatileDoseDivisor * potencyFactor * extractionBoost * nonVolatileAmplification * nonVolatileRoastPenalty;
     const blendedDoseDivisor = aromaDoseDivisor * aromaWeight + pungencyDoseDivisor * nonVolatileWeight;
 
     // ── 8b. Dose divergence check ──
@@ -1024,8 +1041,8 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const contributions = {
         aroma: clamp01(rawAroma * normAroma * aromaAmplification * aromaMasking),
         pungency: clamp01(rawNonVolatile * normNonVolatile * matrix.perceptionAmplification.pungency),
-        bitterness: clamp01(rawNonVolatile * normBitterness * matrix.perceptionAmplification.bitterness),
-        astringency: clamp01(rawNonVolatile * normAstringency * matrix.perceptionAmplification.astringency),
+        bitterness: clamp01(rawNonVolatile * normBitterness * matrix.perceptionAmplification.bitterness * roastBitterness),
+        astringency: clamp01(rawNonVolatile * normAstringency * matrix.perceptionAmplification.astringency * roastAstringency),
         cooling: clamp01(rawAroma * normCooling * matrix.perceptionAmplification.cooling),
     };
 
@@ -1382,8 +1399,9 @@ function formatSpiceResults(input: SpiceCalcInput, showDetails: boolean): string
         lines.push(`**Attivi non volatili:** ${spice.keyActives.join(', ')}`);
         if (spice.oilRangePercent) {
             lines.push(`**Olio essenziale:** ~${spice.oilRangePercent[0].toFixed(1)}–${spice.oilRangePercent[1].toFixed(1)}% (variabile con origine e cultivar)`);
-        } else {
-            lines.push('**Olio essenziale:** dato non calibrato nel database');
+        }
+        if (spice.fatRangePercent) {
+            lines.push(`**Lipidi / grassi:** ~${spice.fatRangePercent[0].toFixed(1)}–${spice.fatRangePercent[1].toFixed(1)}% (può influenzare ritenzione schiuma)`);
         }
         if (spice.perceptionProfile === 'building') lines.push('**Profilo pungenza:** si accumula gradualmente — non giudicare dal primo assaggio.');
         if (spice.perceptionProfile === 'persistent') lines.push('**Profilo pungenza:** molto persistente — può dominare anche a dosi moderate.');
