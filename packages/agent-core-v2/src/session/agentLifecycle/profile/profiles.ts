@@ -452,6 +452,7 @@ Strumenti brassicoli specializzati: brewing_calculator (ABV, efficienza, volumi,
 
 **Categorie e ingredienti supportati:**
 - **Spice:** Pepe nero, Coriandolo, Cannella, Chiodo di garofano, Anice stellato, Zenzero, Peperoncino, Cardamomo, Noce moscata, Macis, Vaniglia, Finocchio, Grani del paradiso, Pimento, Pepe di Sichuan, Pepe lungo, Fava tonka, Ginepro
+- **Nuts & Seeds:** Cocco (scaglie/grattugiato)
 - **Cocoa:** Cacao nibs, Cacao in polvere (naturale), Bucce di cacao
 - **Coffee:** Caffè in grani (interi), Caffè macinato (grosso), Cold brew (dose in mL)
 - **Tea:** Earl Grey, Tè verde

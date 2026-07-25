@@ -721,6 +721,23 @@ const SPICES: SpiceInfo[] = [
         notes: 'Colore rosso brillante, sapore acidulo-fruttato. Ottimo in sour, gose e berliner weisse. Infusione a freddo per colore più brillante.',
     },
 
+    // ── Nuts & Seeds ──
+    {
+        id: 'coconut', name: 'Cocco', aliases: ['cocco', 'coconut', 'cocco essiccato', 'coconut flakes', 'cocco grattugiato', 'cocco rapè'], category: 'spice',
+        referenceForm: 'dried',
+        referenceConditions: { stage: 'conditioning', contactTimeHours: 120, temperatureCelsius: 20 },
+        profile: { aroma: 0.60, pungency: 0.0, bitterness: 0.05, astringency: 0.15, cooling: 0.0 },
+        low: { min: 50, max: 120, recommend: 80 },
+        medium: { min: 120, max: 300, recommend: 200 },
+        high: { min: 300, max: 600, recommend: 450 },
+        keyVolatiles: ['δ-decalactone', 'δ-octalactone', 'methyl ketones'],
+        keyActives: ['fatty acids', 'medium-chain triglycerides'],
+        perceptionProfile: 'immediate', doseUnit: 'g', extraction: { volatileRateMultiplier: 0.80, nonVolatileRateMultiplier: 0.50 },
+        fatRangePercent: [60, 70],
+        risks: ['Altissimo contenuto di grassi (60-70%): impatto significativo sulla ritenzione schiuma', 'Irrancidimento possibile se conservato a lungo: usare solo cocco fresco', 'Il cocco tostato ha profilo più intenso e meno grasso del crudo'],
+        notes: 'Cocco essiccato in scaglie o grattugiato. Tostare leggermente in forno a 150°C per 10-15 min per intensificare l\'aroma. A contatto prolungato oltre 10gg può rilasciare note untuose. Ottimo in stout, porter e birre tropicali.',
+    },
+
     // ── Woods ──
     {
         id: 'oak_chips', name: 'Chips di rovere', aliases: ['rovere', 'oak chips', 'chips rovere'], category: 'wood',
