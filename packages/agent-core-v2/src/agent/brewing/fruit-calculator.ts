@@ -265,12 +265,12 @@ interface CalcResult {
 function compute(input: FruitCalculatorInput): CalcResult {
     const matches = findAllMatches(input.fruit_name);
     if (matches.length === 0) throw new Error(`Frutto "${input.fruit_name}" non trovato nel database.`);
-    const fruit = matches[0];
+    const fruit = matches[0]!;
     const ambiguousMatches = matches.length > 1 ? matches.slice(1).map(f => f.name) : [];
 
     const intensity = INTENSITIES.find(i => i.label.toLowerCase() === input.intensity)!;
-    const method = METHODS[input.addition_method];
-    const style = STYLE_ADJ[input.beer_style];
+    const method = METHODS[input.addition_method]!;
+    const style = STYLE_ADJ[input.beer_style]!;
 
     // Scale base intensity by fruit potency, style, and method efficiency
     const targetIntensityMin = intensity.minGL * fruit.factor * style.factor / method.efficiency;
@@ -286,8 +286,8 @@ function compute(input: FruitCalculatorInput): CalcResult {
         if (otherMatches.length > 1) {
             throw new Error(`Altro frutto "${other.fruit_name}" ambiguo. Possibili: ${otherMatches.map(f => f.name).join(', ')}. Specifica il nome esatto.`);
         }
-        const otherFruit = otherMatches[0];
-        const otherMethod = METHODS[other.addition_method];
+        const otherFruit = otherMatches[0]!;
+        const otherMethod = METHODS[other.addition_method]!;
         const otherGL = (other.fresh_equivalent_kg * 1000) / input.batch_size_liters;
         totalOtherReferenceGL += otherGL * otherMethod.efficiency / otherFruit.factor / style.factor;
     }
