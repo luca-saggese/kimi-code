@@ -599,6 +599,7 @@ const SPICES: SpiceInfo[] = [
     {
         id: 'cocoa_husk', name: 'Bucce di cacao', aliases: ['bucce cacao', 'cocoa husk', 'cacao husk'], category: 'cocoa',
         referenceForm: 'dried',
+        referenceConditions: { stage: 'conditioning', contactTimeHours: 96, temperatureCelsius: 20 },
         profile: { aroma: 0.50, pungency: 0.0, bitterness: 0.30, astringency: 0.40, cooling: 0.0 },
         low: { min: 30, max: 80, recommend: 50 },
         medium: { min: 80, max: 200, recommend: 140 },
@@ -654,7 +655,6 @@ const SPICES: SpiceInfo[] = [
         keyVolatiles: ['pyrazines', 'furfuryl derivatives'],
         keyActives: ['caffeine', 'chlorogenic acids'],
         perceptionProfile: 'immediate', extraction: { volatileRateMultiplier: 1.0, nonVolatileRateMultiplier: 1.0 },
-        oilRangePercent: [1, 3],
         risks: ['Attenzione: il dosaggio è in mL, non in grammi', 'Aggiunge liquido: considerare la diluizione', 'Concentrazione non standard: specificare il rapporto caffè/acqua usato'],
         notes: 'Dosaggio espresso in mL di concentrato, non in grammi di caffè. Preparare con rapporto 1:5 caffè/acqua, 18-24h a 4°C. Esempio: 200g caffè in 1L acqua fredda per 24h.',
     },
@@ -663,6 +663,7 @@ const SPICES: SpiceInfo[] = [
     {
         id: 'earl_grey_tea', name: 'Tè Earl Grey', aliases: ['earl grey', 'earl grey tea'], category: 'tea',
         referenceForm: 'dried',
+        referenceConditions: { stage: 'conditioning', contactTimeHours: 36, temperatureCelsius: 4 },
         profile: { aroma: 0.55, pungency: 0.0, bitterness: 0.35, astringency: 0.40, cooling: 0.0 },
         low: { min: 10, max: 25, recommend: 18 },
         medium: { min: 25, max: 60, recommend: 40 },
@@ -692,6 +693,7 @@ const SPICES: SpiceInfo[] = [
     {
         id: 'chamomile', name: 'Camomilla', aliases: ['camomilla', 'chamomile'], category: 'herb',
         referenceForm: 'dried',
+        referenceConditions: { stage: 'conditioning', contactTimeHours: 36, temperatureCelsius: 4 },
         profile: { aroma: 0.40, pungency: 0.0, bitterness: 0.15, astringency: 0.20, cooling: 0.0 },
         low: { min: 5, max: 15, recommend: 10 },
         medium: { min: 15, max: 40, recommend: 25 },
@@ -706,6 +708,7 @@ const SPICES: SpiceInfo[] = [
     {
         id: 'hibiscus', name: 'Ibisco / Karkadè', aliases: ['ibisco', 'karkadè', 'hibiscus', 'hibiscus tea'], category: 'herb',
         referenceForm: 'dried',
+        referenceConditions: { stage: 'conditioning', contactTimeHours: 24, temperatureCelsius: 20 },
         profile: { aroma: 0.35, pungency: 0.0, bitterness: 0.25, astringency: 0.35, cooling: 0.0 },
         low: { min: 10, max: 30, recommend: 20 },
         medium: { min: 30, max: 80, recommend: 50 },
@@ -964,8 +967,8 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const baseVolatileDoseDivisor = (effectiveVolatileExtract / Math.max(0.01, refEffectiveVolatile)) * relativeVolatileExtract;
     const baseNonVolatileDoseDivisor = (effectiveNonVolatileExtract / Math.max(0.01, refEffectiveNonVolatile)) * relativeNonVolatileExtract;
 
-    // ── 7. Potency / freshness ──
-    const potencyFactor = potencyMultiplier(input.freshness);
+    // ── 7. Potency / freshness (skipped for pre-made liquid doses — use prepared_hours_ago instead) ──
+    const potencyFactor = isDirectLiquid ? 1 : potencyMultiplier(input.freshness);
 
     // ── 8. Matrix factors ──
     const matrix = computeMatrixFactors(input.beer_matrix);
@@ -1094,11 +1097,13 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const addedVolumeL = spice.doseUnit === 'ml' ? doseRecommended / 1000 : 0;
     const dilutionPercent = addedVolumeL / input.batch_liters * 100;
 
-    // ── 11. Compute sensory contributions from actual dose ──
-    // effectiveDose_gL = dose × extraction × relativeForm × potency × extractionBoost / volume
-    // Must match the same factors used to scale the dose, so perceived intensity is consistent
-    const effectiveVolatileDoseGL = doseRecommended * effectiveVolatileExtract * relativeVolatileExtract * potencyFactor * extractionBoost / input.batch_liters;
-    const effectiveNonVolatileDoseGL = doseRecommended * effectiveNonVolatileExtract * relativeNonVolatileExtract * potencyFactor * extractionBoost / input.batch_liters;
+    // ── 13. Compute sensory contributions from actual dose ──
+    // effectiveDose_gL = dose × deliveredStrength × extraction × relativeForm × potency × extractionBoost / volume
+    // For direct liquid doses: dose is already divided by liquidStrengthFactor, so we multiply it back
+    // to restore the effective concentration delivered to the beer.
+    const deliveredStrengthFactor = isDirectLiquid ? liquidStrengthFactor : 1;
+    const effectiveVolatileDoseGL = doseRecommended * deliveredStrengthFactor * effectiveVolatileExtract * relativeVolatileExtract * potencyFactor * extractionBoost / input.batch_liters;
+    const effectiveNonVolatileDoseGL = doseRecommended * deliveredStrengthFactor * effectiveNonVolatileExtract * relativeNonVolatileExtract * potencyFactor * extractionBoost / input.batch_liters;
 
     // Fix #2: spice-specific EC50 derived from reference medium dose.
     // Under reference conditions, medium.recommend g/20L should produce ~50% intensity
@@ -1140,10 +1145,10 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     const normCooling = spice.profile.cooling / dominantProfile;
 
     const contributions = {
-        aroma: clamp01(rawAroma * normAroma * aromaAmplification * aromaMasking),
+        aroma: clamp01(rawAroma * normAroma * aromaAmplification * aromaMasking * roastAromaPotency * woodToastAroma),
         pungency: clamp01(rawNonVolatile * normNonVolatile * matrix.perceptionAmplification.pungency),
         bitterness: clamp01(rawNonVolatile * normBitterness * matrix.perceptionAmplification.bitterness * roastBitterness),
-        astringency: clamp01(rawNonVolatile * normAstringency * matrix.perceptionAmplification.astringency * roastAstringency),
+        astringency: clamp01(rawNonVolatile * normAstringency * matrix.perceptionAmplification.astringency * roastAstringency * woodToastAstringency),
         cooling: clamp01(rawAroma * normCooling * matrix.perceptionAmplification.cooling),
     };
 
@@ -1227,7 +1232,7 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
     if (doseDivergence > 2) {
         confidence -= 0.10;
         confidenceNotes.push(
-            'Aroma e pungenza richiedono dosi molto diverse (fattore ' + doseDivergence.toFixed(1) + '×). ' +
+            'Aroma e sensazioni non volatili richiedono dosi molto diverse (fattore ' + doseDivergence.toFixed(1) + '×). ' +
             'La dose proposta è un compromesso: preferire tintura e dosaggio incrementale.'
         );
     }
@@ -1236,11 +1241,13 @@ function computeSpiceDose(input: SpiceCalcInput): SpiceDoseOutput {
 
     // ── 13. Method recommendation ──
     const practicallyRemovable = stage.removable && form.removable;
-    const recommendedMethod = input.stage === 'tincture'
-        ? 'Tintura: aggiungere goccia a goccia su campione da 100 mL fino a intensità desiderata, poi scalare al volume totale.'
-        : practicallyRemovable
-            ? `${stage.label} (${form.label}): aggiungere in sacchetto/sacco per rimozione facile. Assaggiare ogni 12-24 ore. Rimuovere quando l'intensità raggiunge ~80% del target (continuerà a estrarre brevemente dopo la rimozione).`
-            : `${stage.label} (${form.label}): metodo non rimovibile. Iniziare con il 70% della dose consigliata, assaggiare dopo 24 ore, aggiungere il resto se necessario.`;
+    const recommendedMethod = isDirectLiquid
+        ? 'Aggiungere il concentrato direttamente alla birra finita, preferibilmente nel keg o nel vessel di confezionamento. Mescolare delicatamente, attendere 10–15 minuti e assaggiare prima di aggiungerne altro.'
+        : input.stage === 'tincture'
+            ? 'Tintura: aggiungere goccia a goccia su campione da 100 mL fino a intensità desiderata, poi scalare al volume totale.'
+            : practicallyRemovable
+                ? `${stage.label} (${form.label}): aggiungere in sacchetto/sacco per rimozione facile. Assaggiare ogni 12-24 ore. Rimuovere quando l'intensità raggiunge ~80% del target (continuerà a estrarre brevemente dopo la rimozione).`
+                : `${stage.label} (${form.label}): metodo non rimovibile. Iniziare con il 70% della dose consigliata, assaggiare dopo 24 ore, aggiungere il resto se necessario.`;
 
     // ── 14. Adjustment protocol ──
     const sampleLiters = 0.2;
