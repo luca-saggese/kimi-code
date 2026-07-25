@@ -130,7 +130,7 @@ const BRASSICOLO_TOOLS = [
   'recipe_list',
   'brewday_log',
   'fruit_calculator',
-  'spice_calculator',
+  'botanical_adjunct_calculator',
 ] as const;
 
 const CODER_ROLE =
@@ -412,7 +412,7 @@ Puoi esportare le ricette YAML in PDF con yaml_to_pdf e in DOCX con yaml_to_docx
 
 ## STRUMENTI
 
-Strumenti brassicoli specializzati: brewing_calculator (ABV, efficienza, volumi, ecc.), water_profile_calculator (aggiustamento minerali), ibu_calculator (Tinseth/Rager/Garetz), priming_calculator (dosaggio zucchero), recipe_validator (validazione BJCP), inventory_search (magazzino virtuale), fruit_calculator (dosaggio frutta), spice_calculator (dosaggio spezie), yaml_to_pdf (esporta ricetta in PDF), yaml_to_docx (esporta ricetta in DOCX). Per lettura/scrittura file e web: Read, Write, Grep, Glob, Bash, WebSearch, FetchURL.
+Strumenti brassicoli specializzati: brewing_calculator (ABV, efficienza, volumi, ecc.), water_profile_calculator (aggiustamento minerali), ibu_calculator (Tinseth/Rager/Garetz), priming_calculator (dosaggio zucchero), recipe_validator (validazione BJCP), inventory_search (magazzino virtuale), fruit_calculator (dosaggio frutta), botanical_adjunct_calculator (dosaggio spezie, cacao, caffè, tè, erbe, legni), yaml_to_pdf (esporta ricetta in PDF), yaml_to_docx (esporta ricetta in DOCX). Per lettura/scrittura file e web: Read, Write, Grep, Glob, Bash, WebSearch, FetchURL.
 
 ### fruit_calculator — DOSAGGIO FRUTTA PER FRUIT BEERS
 
@@ -434,33 +434,41 @@ Strumenti brassicoli specializzati: brewing_calculator (ABV, efficienza, volumi,
 
 **Usalo SEMPRE per:** dosare la frutta in una ricetta, confrontare formati (fresco vs liofilizzato), decidere l'intensità giusta per uno stile, verificare l'impatto ABV della frutta.
 
-### spice_calculator — DOSAGGIO SPEZIE E AROMATIZZANTI
+### botanical_adjunct_calculator — DOSAGGIO INGREDIENTI BOTANICI (SPEZIE, CACAO, CAFFÈ, TÈ, ERBE, LEGNI)
 
-\`spice_calculator\` stima un **intervallo** di dosaggio per spezie e aromatizzanti. Separa la dose aromatica (volatili come terpeni e fenoli) dalla dose chemestetica (pungenza, calore, astringenza). Considera forma fisica, stadio di aggiunta, tempo e temperatura di contatto, matrice della birra (ABV, FG, IBU, tostato, acidità), freschezza e interazioni tra spezie multiple. Restituisce **intervallo, livello di confidenza, rischi, profilo sensoriale atteso e protocollo di aggiustamento** — mai un numero preciso isolato.
+\`botanical_adjunct_calculator\` stima un **intervallo** di dosaggio per ingredienti botanici nella birra. Supporta categorie: **spezie** (pepe, coriandolo, cannella, chiodi di garofano, zenzero, peperoncino con SHU, ecc.), **cacao** (nibs, polvere naturale/alcalinizzata, bucce), **caffè** (grani interi, macinato, cold brew), **tè** (Earl Grey, tè verde), **erbe** (camomilla, ibisco), **scorze** (arancia, limone), **legni** (rovere). Separa dose aromatica dalla dose chemestetica con modello saturante di estrazione. Restituisce intervallo, confidenza, rischi, profilo sensoriale e protocollo di bench trial.
 
 **Parametri principali:**
-- \`spice_name\`: nome della spezia in italiano (es. "Pepe nero", "Coriandolo", "Chiodo di garofano", "Zenzero")
+- \`spice_name\`: nome dell'ingrediente (es. "Pepe nero", "Cacao nibs", "Caffè macinato", "Earl Grey", "Camomilla")
 - \`batch_liters\`: volume batch
 - \`intensity\`: low, medium, high (default: medium)
-- \`form\`: whole, cracked, ground, fresh, dried, tincture, extract
+- \`form\`: whole, cracked, ground, fresh, dried
 - \`stage\`: mash, boil, whirlpool, fermentation, conditioning, keg, tincture
-- \`contact_time_hours\`: ore di contatto previste (default: 72)
+- \`contact_time_hours\`: ore di contatto (default: 72, per caffè macinato ~12-24)
 - \`temperature_celsius\`: temperatura durante il contatto (default: 20)
-- \`freshness\`: freshly_cracked, recent, older, unknown
-- \`abv\`, \`final_gravity\`, \`ibu\`: parametri della birra
-- \`roast_intensity\`, \`hop_aroma_intensity\`, \`acidity\`: 0–1
-- \`other_spices\`: array di altre spezie già presenti per analisi di compatibilità
-- Solo peperoncino: \`shu\` (Scoville) o \`capsaicinoids_mg_per_g\`
+- \`roast_level\`: light, medium, dark (per caffè e cacao)
+- Solo peperoncino: \`shu\` o \`capsaicinoids_mg_per_g\`
+- \`abv\`, \`final_gravity\`, \`ibu\`, \`roast_intensity\`, \`acidity\`: parametri birra
 
-**Spezie supportate:** Pepe nero, Coriandolo, Cannella, Chiodo di garofano, Anice stellato, Zenzero, Peperoncino, Cardamomo, Noce moscata, Macis, Vaniglia, Finocchio, Grani del paradiso, Pimento, Scorza arancia/limone, Pepe di Sichuan, Pepe lungo, Fava tonka, Ginepro.
+**Categorie e ingredienti supportati:**
+- **Spice:** Pepe nero, Coriandolo, Cannella, Chiodo di garofano, Anice stellato, Zenzero, Peperoncino, Cardamomo, Noce moscata, Macis, Vaniglia, Finocchio, Grani del paradiso, Pimento, Pepe di Sichuan, Pepe lungo, Fava tonka, Ginepro
+- **Cocoa:** Cacao nibs, Cacao in polvere (naturale), Bucce di cacao
+- **Coffee:** Caffè in grani (interi), Caffè macinato (grosso), Cold brew (dose in mL)
+- **Tea:** Earl Grey, Tè verde
+- **Herb:** Camomilla, Ibisco / Karkadè
+- **Peel:** Scorza d'arancia, Scorza di limone
+- **Wood:** Rovere (chips)
 
 **Esempi:**
-- \`spice_calculator({spice_name:"Pepe nero", batch_liters:20, intensity:"medium", stage:"conditioning"})\`
-- \`spice_calculator({spice_name:"Coriandolo", batch_liters:23, intensity:"low", form:"cracked", stage:"whirlpool", contact_time_hours:0.5, temperature_celsius:85, other_spices:["Scorza d'arancia"]})\`
-- \`spice_calculator({spice_name:"Peperoncino", batch_liters:20, shu:40000, intensity:"low"})\`
-- \`spice_calculator({spice_name:"Chiodo di garofano", batch_liters:20, intensity:"low", other_spices:["Cannella", "Noce moscata"]})\`
+- \`botanical_adjunct_calculator({spice_name:"Pepe nero", batch_liters:20, intensity:"medium", stage:"conditioning"})\`
+- \`botanical_adjunct_calculator({spice_name:"Cacao nibs", batch_liters:20, intensity:"medium", stage:"conditioning", contact_time_hours:120})\`
+- \`botanical_adjunct_calculator({spice_name:"Caffè macinato", batch_liters:20, intensity:"medium", roast_level:"dark", stage:"conditioning", contact_time_hours:18})\`
+- \`botanical_adjunct_calculator({spice_name:"Cold brew", batch_liters:20, intensity:"medium", roast_level:"medium"})\`
+- \`botanical_adjunct_calculator({spice_name:"Earl Grey", batch_liters:20, intensity:"medium", contact_time_hours:24, temperature_celsius:4})\`
+- \`botanical_adjunct_calculator({spice_name:"Rovere", batch_liters:20, intensity:"medium", contact_time_hours:240})\`
+- \`botanical_adjunct_calculator({spice_name:"Peperoncino", batch_liters:20, shu:40000, intensity:"low"})\`
 
-**Usalo SEMPRE per:** dosare qualsiasi spezia o aromatizzante, valutare compatibilità tra spezie multiple, decidere forma/stadio/tempo di contatto, capire i rischi di sovradosaggio o interazioni negative.
+**Usalo SEMPRE per:** dosare spezie, cacao, caffè, tè, erbe e legni; scegliere forma/stadio/tempo; valutare rischi di sovradosaggio e interazioni; determinare il roast_level per caffè e cacao.
 
 ### recipe_list — ELENCO RICETTE SALVATE
 
