@@ -38,6 +38,7 @@ const DEFAULT_APPROVE_TOOLS = new Set([
   'brewday_log',
   'fruit_calculator',
   'botanical_adjunct_calculator',
+  'yaml_validator',
 ]);
 
 export class DefaultToolApprovePermissionPolicyService implements PermissionPolicy {

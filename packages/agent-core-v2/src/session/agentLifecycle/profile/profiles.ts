@@ -131,6 +131,7 @@ const BRASSICOLO_TOOLS = [
   'brewday_log',
   'fruit_calculator',
   'botanical_adjunct_calculator',
+  'yaml_validator',
 ] as const;
 
 const CODER_ROLE =
@@ -412,7 +413,30 @@ Puoi esportare le ricette YAML in PDF con yaml_to_pdf e in DOCX con yaml_to_docx
 
 ## STRUMENTI
 
-Strumenti brassicoli specializzati: brewing_calculator (ABV, efficienza, volumi, ecc.), water_profile_calculator (aggiustamento minerali), ibu_calculator (Tinseth/Rager/Garetz), priming_calculator (dosaggio zucchero), recipe_validator (validazione BJCP), inventory_search (magazzino virtuale), fruit_calculator (dosaggio frutta), botanical_adjunct_calculator (dosaggio spezie, cacao, caffè, tè, erbe, legni), yaml_to_pdf (esporta ricetta in PDF), yaml_to_docx (esporta ricetta in DOCX). Per lettura/scrittura file e web: Read, Write, Grep, Glob, Bash, WebSearch, FetchURL.
+Strumenti brassicoli specializzati: brewing_calculator (ABV, efficienza, volumi, ecc.), water_profile_calculator (aggiustamento minerali), ibu_calculator (Tinseth/Rager/Garetz), priming_calculator (dosaggio zucchero), recipe_validator (validazione BJCP), yaml_validator (validazione completa ricetta YAML con report deterministico + contesto per revisione LLM), inventory_search (magazzino virtuale), fruit_calculator (dosaggio frutta), botanical_adjunct_calculator (dosaggio spezie, cacao, caffè, tè, erbe, legni), yaml_to_pdf (esporta ricetta in PDF), yaml_to_docx (esporta ricetta in DOCX). Per lettura/scrittura file e web: Read, Write, Grep, Glob, Bash, WebSearch, FetchURL.
+
+### yaml_validator — VERIFICA OBBLIGATORIA DOPO OGNI RICETTA
+
+\`yaml_validator\` legge un file YAML di ricetta e lo valida completamente:
+1. **Validazione deterministica**: OG/FG/ABV/IBU/EBC contro BJCP, bilanciamento IBU/OG, composizione grist, luppolatura, mash, profilo acqua, coerenza volumi, carbonazione, efficienza, consistenza ABV dichiarato vs calcolato.
+2. **Contesto per revisione LLM**: produce un prompt strutturato con tutta la ricetta, i dati BJCP, il report deterministico, e lo schema JSON atteso per la revisione qualitativa (errori critici, warning, valutazione sensoriale, conformità stilistica, azioni raccomandate).
+
+**⚠️ REGOLA OBBLIGATORIA: DOPO AVER SALVATO QUALSIASI RICETTA YAML, DEVI SEMPRE:**
+1. Chiamare \`yaml_validator({input_file:"percorso/ricetta.yaml"})\`
+2. Leggere il report deterministico e correggere SUBITO eventuali errori critici
+3. Usare il contesto LLM prodotto dal validator per fare una revisione qualitativa approfondita della ricetta
+4. Correggere il file YAML con le modifiche necessarie
+5. Solo DOPO aver corretto tutto, rispondere all'utente con la ricetta finale
+
+**Esempio di workflow corretto:**
+\`\`\`
+1. Write("ricetta.yaml", contenuto_ricetta)
+2. yaml_validator({input_file:"ricetta.yaml"})  ← OBBLIGATORIO
+3. Leggi il report → se ci sono errori, Edit("ricetta.yaml", ...) per correggere
+4. Usa il prompt LLM generato per fare la revisione qualitativa
+5. Applica le correzioni suggerite dalla revisione
+6. Rispondi all'utente con la ricetta finale validata
+\`\`\`
 
 ### fruit_calculator — DOSAGGIO FRUTTA PER FRUIT BEERS
 

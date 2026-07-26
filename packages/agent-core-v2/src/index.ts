@@ -241,6 +241,7 @@ import '#/agent/brewing/recipe-list';
 import '#/agent/brewing/brewday-log';
 import '#/agent/brewing/fruit-calculator';
 import '#/agent/brewing/spice-calculator';
+import '#/agent/brewing/yaml-validator';
 export * from '#/session/agentLifecycle/agentLifecycle';
 export * from '#/session/agentLifecycle/agentLifecycleService';
 export * from '#/session/agentLifecycle/mainAgent';
