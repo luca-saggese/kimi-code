@@ -45,7 +45,11 @@ export const IbuCalculatorInputSchema = z.object({
         .number()
         .min(0)
         .max(30)
-        .optional(),
+        .optional()
+        .describe(
+          'Alpha acid percentage of the hop. ' +
+          'If omitted, the calculator uses an internal database average.'
+        ),
 
       grams: z
         .number()
