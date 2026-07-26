@@ -20,9 +20,11 @@ import {
   saveCollapsedWorkspaces,
 } from '../lib/storage';
 import { moveInOrder, type DropPosition, type WorkspaceSortMode } from '../lib/workspaceOrder';
+import type { FsEntry } from '../api/types';
 import type { Session, WorkspaceGroup as WorkspaceGroupType, WorkspaceView } from '../types';
 import SearchSessionsDialog from './dialogs/SearchSessionsDialog.vue';
 import WorkspaceGroup from './WorkspaceGroup.vue';
+import FileTreePanel from './FileTreePanel.vue';
 import { isMacosDesktop } from '../lib/desktopFlag';
 import { clearCredential, hasBasicAuth } from '../api/daemon/serverAuth';
 import IconButton from './ui/IconButton.vue';
@@ -91,6 +93,8 @@ const props = withDefaults(
     /** True while the resize handle is dragged — disables the width transition
      *  so the sidebar follows the pointer 1:1. */
     dragging?: boolean;
+    /** Function to list directory contents for the active session. */
+    listDir?: (path: string) => Promise<FsEntry[]>;
   }>(),
   {
     activeWorkspace: null,
@@ -123,6 +127,7 @@ const emit = defineEmits<{
   loadAllSessions: [];
   openSettings: [];
   collapse: [];
+  openFile: [path: string];
 }>();
 
 // ---------------------------------------------------------------------------
@@ -782,6 +787,12 @@ onBeforeUnmount(() => {
         </div>
 
         <template v-else>
+          <!-- File tree panel: shows files in the current working directory -->
+          <FileTreePanel
+            :list-dir="listDir ?? (async () => [])"
+            @open-file="(path) => emit('openFile', path)"
+          />
+
           <div class="side-section-label">
             <span class="side-section-title">{{ t('sidebar.workspaces') }}</span>
             <div class="side-section-actions">

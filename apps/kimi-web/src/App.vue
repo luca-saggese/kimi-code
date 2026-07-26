@@ -736,6 +736,7 @@ function openPr(url: string): void {
         :unread-by-session="client.unreadBySession.value"
         :workspace-sort-mode="client.workspaceSortMode.value"
         :backend="client.backend.value"
+        :list-dir="client.listDir"
         @select="client.selectSession($event)"
         @create="handleCreateSession"
         @create-in-workspace="handleCreateSessionInWorkspace($event)"
@@ -753,6 +754,7 @@ function openPr(url: string): void {
         @load-all-sessions="void client.loadAllSessions()"
         @open-settings="showSettings = true"
         @collapse="toggleSidebarCollapse"
+        @open-file="(path) => openFilePreview({ path })"
       />
       <ResizeHandle
         v-show="!sidebarCollapsed"
