@@ -7,14 +7,13 @@ import { useI18n } from 'vue-i18n';
 import type { FsEntry } from '../api/types';
 import type { IconName } from '../lib/icons';
 import FileTreeNode from './FileTreeNode.vue';
-import Icon from './ui/Icon.vue';
-import IconButton from './ui/IconButton.vue';
 
 defineOptions({ name: 'FileTreePanel' });
 
 const props = defineProps<{
   listDir: (path: string) => Promise<FsEntry[]>;
   activeSessionId: string | null;
+  collapsed: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -23,7 +22,6 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-const collapsed = ref(false);
 const roots = ref<FsEntry[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
@@ -130,29 +128,10 @@ function fileIcon(entry: FsEntry): IconName {
 function onOpenFile(entry: FsEntry): void {
   if (entry.kind === 'file') emit('openFile', entry.path);
 }
-
-function toggleCollapse(): void {
-  collapsed.value = !collapsed.value;
-}
 </script>
 
 <template>
   <div class="ft-panel">
-    <div class="side-section-label">
-      <span class="side-section-title">{{ t('fileTree.title') }}</span>
-      <div class="side-section-actions">
-        <IconButton
-          class="side-section-toggle"
-          size="sm"
-          :label="collapsed ? t('fileTree.expand') : t('fileTree.collapse')"
-          @click.stop="toggleCollapse"
-        >
-          <Icon v-if="collapsed" name="expand" />
-          <Icon v-else name="collapse" />
-        </IconButton>
-      </div>
-    </div>
-
     <div class="ft-body" :class="{ 'ft-body--collapsed': collapsed }" :inert="collapsed || undefined">
       <div v-if="loading" class="ft-empty">{{ t('fileTree.loading') }}</div>
       <div v-else-if="error" class="ft-empty ft-empty--error">{{ error }}</div>

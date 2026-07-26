@@ -174,6 +174,9 @@ function onSessionsScroll(e: Event): void {
 // ---------------------------------------------------------------------------
 const collapsedIds = ref<Set<string>>(new Set(loadCollapsedWorkspaces()));
 
+// File tree panel collapse state
+const fileTreeCollapsed = ref(false);
+
 // ---------------------------------------------------------------------------
 // Sign out (clear credential + reload)
 // ---------------------------------------------------------------------------
@@ -787,12 +790,7 @@ onBeforeUnmount(() => {
         </div>
 
         <template v-else>
-          <!-- File tree panel: shows files in the current working directory -->
-          <FileTreePanel
-            :list-dir="(listDir ?? (async (path: string) => { console.warn('[Sidebar] listDir fallback called, path =', path); return []; }))"
-            :active-session-id="activeId || null"
-            @open-file="(path) => emit('openFile', path)"
-          />
+         
 
           <div class="side-section-label">
             <span class="side-section-title">{{ t('sidebar.workspaces') }}</span>
@@ -860,10 +858,32 @@ onBeforeUnmount(() => {
               @ws-dragend="onWsDragend"
             />
           </div>
+           <!-- Files section label — same pattern as WORKSPACES -->
+          <div class="side-section-label">
+            <span class="side-section-title">{{ t('fileTree.title') }}</span>
+            <div class="side-section-actions">
+              <IconButton
+                class="side-section-toggle"
+                size="sm"
+                :label="fileTreeCollapsed ? t('fileTree.expand') : t('fileTree.collapse')"
+                @click.stop="fileTreeCollapsed = !fileTreeCollapsed"
+              >
+                <Icon v-if="fileTreeCollapsed" name="expand" />
+                <Icon v-else name="collapse" />
+              </IconButton>
+            </div>
+          </div>
+          <!-- File tree panel: shows files in the current working directory -->
+          <FileTreePanel
+            :list-dir="(listDir ?? (async (path: string) => { console.warn('[Sidebar] listDir fallback called, path =', path); return []; }))"
+            :active-session-id="activeId || null"
+            :collapsed="fileTreeCollapsed"
+            @open-file="(path) => emit('openFile', path)"
+          />
         </template>
       </div>
 
-      <!-- Footer: settings and sign out -->
+      <!-- Footer: settings and sign out on the same row -->
       <div class="side-footer">
         <button class="btn-settings" type="button" @click.stop="emit('openSettings')">
           <Icon name="settings" />
@@ -871,12 +891,13 @@ onBeforeUnmount(() => {
         </button>
         <button
           v-if="showLogout"
-          class="btn-settings"
+          class="btn-settings btn-settings--logout"
           type="button"
           @click.stop="handleLogout"
         >
           <Icon name="signOut" />
           <span>{{ t('sidebar.signOut') }}</span>
+          <Icon name="chevron-right" size="sm" class="btn-settings-extra-icon" />
         </button>
       </div>
     </div>
@@ -1227,11 +1248,12 @@ onBeforeUnmount(() => {
 }
 .sessions::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--color-text) 25%, transparent); }
 
-/* Footer — settings entry pinned under the session list. Same list-style
-   control family as search / New chat (full-width, left-aligned, hover
-   sunken — not a Button). */
+/* Footer — settings + sign out on the same row. */
 .side-footer {
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   padding: var(--space-2) var(--sb-inset);
   border-top: 1px solid var(--line);
 }
@@ -1239,7 +1261,6 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  width: 100%;
   min-width: 0;
   padding: 8px calc(var(--sb-pad-x) - var(--sb-inset));
   border: none;
@@ -1252,6 +1273,9 @@ onBeforeUnmount(() => {
   cursor: pointer;
   text-align: left;
 }
+.btn-settings:first-child {
+  flex: 1;
+}
 .btn-settings:hover { background: var(--sb-hover); }
 .btn-settings:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
 .btn-settings svg { flex: none; }
@@ -1259,6 +1283,14 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.btn-settings--logout {
+  padding-left: 0;
+  padding-right: calc(var(--sb-pad-x) - var(--sb-inset) - 4px);
+}
+.btn-settings-extra-icon {
+  margin-left: auto;
+  color: var(--faint);
 }
 
 /* Section label — heads the workspace list below the action buttons. Aligns
