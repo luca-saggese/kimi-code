@@ -789,7 +789,8 @@ onBeforeUnmount(() => {
         <template v-else>
           <!-- File tree panel: shows files in the current working directory -->
           <FileTreePanel
-            :list-dir="listDir ?? (async () => [])"
+            :list-dir="(listDir ?? (async (path: string) => { console.warn('[Sidebar] listDir fallback called, path =', path); return []; }))"
+            :active-session-id="activeId || null"
             @open-file="(path) => emit('openFile', path)"
           />
 

@@ -2,7 +2,7 @@
 <!-- Collapsible sidebar panel showing a tree of files in the current working
      directory. Mirrors the WORKSPACES section style. -->
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { FsEntry } from '../api/types';
 import type { IconName } from '../lib/icons';
@@ -14,6 +14,7 @@ defineOptions({ name: 'FileTreePanel' });
 
 const props = defineProps<{
   listDir: (path: string) => Promise<FsEntry[]>;
+  activeSessionId: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -47,7 +48,19 @@ async function loadRoot(): Promise<void> {
     loading.value = false;
   }
 }
-loadRoot();
+// Reload whenever the active session changes to a non-null value.
+watch(
+  () => props.activeSessionId,
+  (sid) => {
+    if (sid) loadRoot();
+    else {
+      roots.value = [];
+      error.value = null;
+      expandedDirs.value = {};
+    }
+  },
+  { immediate: true },
+);
 
 async function toggleDir(entry: FsEntry): Promise<void> {
   if (entry.kind !== 'directory') return;

@@ -2593,12 +2593,22 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
    */
   async function listDir(path: string): Promise<FsEntry[]> {
     const sid = rawState.activeSessionId;
-    if (!sid) return [];
+    console.log('[useWorkspaceState.listDir] path =', JSON.stringify(path), 'sid =', sid);
+    if (!sid) {
+      console.warn('[useWorkspaceState.listDir] no active session, returning []');
+      return [];
+    }
     try {
       const api = getKimiWebApi();
-      const result = await api.listDirectory(sid, { path, includeGitStatus: true });
+      console.log('[useWorkspaceState.listDir] calling api.listDirectory sid =', sid, 'path =', JSON.stringify(path));
+      const result = await api.listDirectory(sid, { path: path || undefined, includeGitStatus: true });
+      console.log('[useWorkspaceState.listDir] result.items.length =', result.items.length);
+      if (result.items.length > 0) {
+        console.log('[useWorkspaceState.listDir] first item =', result.items[0]);
+      }
       return result.items;
-    } catch {
+    } catch (err) {
+      console.error('[useWorkspaceState.listDir] error =', err);
       return [];
     }
   }
