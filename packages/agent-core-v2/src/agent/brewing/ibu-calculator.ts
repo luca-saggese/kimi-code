@@ -160,7 +160,8 @@ export class IbuCalculatorTool implements BuiltinTool<IbuCalculatorInput> {
 
   readonly parameters: Record<string, unknown> = toInputJsonSchema(IbuCalculatorInputSchema);
 
-  resolveExecution(args: IbuCalculatorInput): ToolExecution {
+  resolveExecution(rawArgs: IbuCalculatorInput): ToolExecution {
+    const args = IbuCalculatorInputSchema.parse(rawArgs);
     return {
       description: `IBU calculation (${args.model})`,
       approvalRule: this.name,
