@@ -306,12 +306,12 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
       } else {
         workDir = callerCwd as string;
       }
-
+      
       // Ensure the workspace is registered so `metadata.cwd` is resolvable on
       // read (gap G3 — v2 does not store workDir on the session).
       try {
         const touched = await registry.createOrTouch(workDir);
-
+        
         const handle = await core.accessor.get(ISessionLifecycleService).create({
           workDir,
         });

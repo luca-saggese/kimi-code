@@ -160,7 +160,13 @@ export class AgentProfileService implements IAgentProfileService {
     }
     const model = this.modelFactory.resolve(input.model);
 
-    const context = await this.buildSystemPromptContext(input.cwd);
+    // Normalize cwd: if the caller didn't provide one (or provided an empty
+    // string), default to the session-level cwd so that the ProfileModel
+    // always has a concrete working directory.  Without this, resume restores
+    // cwd=undefined, the getter falls through to '', and '' ?? X keeps ''
+    // (empty string is not nullish).
+    const resolvedCwd = input.cwd || this.sessionContext.cwd;
+    const context = await this.buildSystemPromptContext(resolvedCwd);
     const systemPrompt = profile.systemPrompt(context);
     this.activeProfile = profile;
     this.cacheAgentsMdWarning(context);
@@ -172,7 +178,7 @@ export class AgentProfileService implements IAgentProfileService {
     );
 
     this.update({
-      cwd: input.cwd,
+      cwd: resolvedCwd,
       profileName: profile.name,
       systemPrompt,
     });
@@ -583,7 +589,9 @@ export class AgentProfileService implements IAgentProfileService {
     cwd?: string,
     options?: ApplyProfileOptions,
   ): Promise<SystemPromptContext> {
-    const effectiveCwd = cwd ?? this.sessionContext.cwd;
+    // Safety net: treat empty string the same as undefined — the ?? operator
+    // doesn't, so an empty cwd would leak into the system prompt.
+    const effectiveCwd = (cwd || undefined) ?? this.sessionContext.cwd;
     const base = await prepareSystemPromptContext(
       { fs: this.fs, homeDir: this.env.homeDir },
       effectiveCwd,
