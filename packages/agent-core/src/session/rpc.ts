@@ -45,6 +45,7 @@ import {
   promptMetadataTextFromPluginCommand,
   promptMetadataTextFromSkill,
   titleFromPromptMetadataText,
+  titleFromPromptViaLLM,
 } from './prompt-metadata';
 
 type AgentScopedPayload<T> = T & { agentId: string };
@@ -317,9 +318,39 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
   private async updatePromptMetadata(lastPrompt: string | undefined): Promise<void> {
     if (lastPrompt === undefined) return;
 
-    const title = this.needUpdateEasyTitle(this.session.metadata)
-      ? titleFromPromptMetadataText(lastPrompt)
-      : undefined;
+    let title: string | undefined;
+    let isCustomTitle: boolean | undefined;
+
+    if (this.needUpdateEasyTitle(this.session.metadata)) {
+      const providerManager = this.session.options.providerManager;
+      const flagEnabled = this.session.experimentalFlags.enabled('llm_session_title');
+      const hasProvider = providerManager !== undefined;
+      const hasDefaultModel = hasProvider && providerManager.defaultModel !== undefined;
+      const useLLM = flagEnabled && hasDefaultModel;
+
+      this.session.log.info('[title:llm] updatePromptMetadata', {
+        flagEnabled,
+        hasProvider,
+        hasDefaultModel,
+        defaultModel: hasProvider ? providerManager.defaultModel : undefined,
+        useLLM,
+        lastPromptLen: lastPrompt.length,
+        lastPromptPreview: lastPrompt.slice(0, 80),
+      });
+
+      title = useLLM
+        ? await titleFromPromptViaLLM(
+            providerManager,
+            providerManager.defaultModel,
+            lastPrompt,
+            this.session.log,
+          )
+        : titleFromPromptMetadataText(lastPrompt);
+
+      this.session.log.info('[title:llm] resolved title', { useLLM, title, titleLen: title.length });
+      isCustomTitle = false;
+    }
+
     const now = new Date().toISOString();
     const nextMetadata = {
       ...this.session.metadata,
@@ -339,7 +370,7 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
       title,
       patch: {
         title,
-        isCustomTitle: title === undefined ? undefined : false,
+        isCustomTitle,
         lastPrompt,
       },
     });

@@ -32,6 +32,15 @@ export const FLAG_DEFINITIONS = [
     default: false,
     surface: 'core',
   },
+  {
+    id: 'llm_session_title',
+    title: 'LLM-generated session titles',
+    description:
+      'Use a small LLM call to generate a descriptive session title from the first user prompt instead of truncating the prompt text directly.',
+    env: 'KIMI_CODE_EXPERIMENTAL_LLM_SESSION_TITLE',
+    default: false,
+    surface: 'core',
+  },
 ] as const satisfies readonly FlagDefinitionInput[];
 
 /** Literal union of registered flag ids. */

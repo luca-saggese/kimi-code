@@ -1,12 +1,80 @@
 import type { ActivatePluginCommandPayload, ActivateSkillPayload, PromptPayload } from '#/rpc';
+import { log as rootLog } from '#/logging/logger';
+import type { Logger } from '#/logging/types';
 import { extractImageCompressionCaptions } from '#/tools/support/image-compress';
-import type { ContentPart } from '@moonshot-ai/kosong';
+import {
+  createProvider,
+  extractText,
+  generate,
+  createUserMessage,
+  type ContentPart,
+} from '@moonshot-ai/kosong';
+import type { ModelProvider } from './provider-manager';
 
 const MAX_TITLE_LENGTH = 200;
 const MAX_LAST_PROMPT_LENGTH = 4000;
+const MAX_PROMPT_FOR_TITLE = 1000;
+const LLM_TITLE_SYSTEM_PROMPT =
+  'You are a title generator. Given the first message of a conversation, generate a concise, descriptive title in 5-8 words. Respond with ONLY the title — no quotes, periods, or extra text.';
 
 export function titleFromPromptMetadataText(text: string): string {
   return text.slice(0, MAX_TITLE_LENGTH);
+}
+
+/**
+ * Generate a session title via an LLM call instead of trivially
+ * truncating the user's first prompt. Falls back to truncation on
+ * any error so title generation is never a hard failure.
+ */
+export async function titleFromPromptViaLLM(
+  modelProvider: ModelProvider,
+  model: string,
+  text: string,
+  log?: Logger,
+): Promise<string> {
+  const logg = log ?? rootLog;
+  logg.info('[title:llm] titleFromPromptViaLLM called', {
+    model,
+    textLen: text.length,
+    textPreview: text.slice(0, 80),
+  });
+  try {
+    const resolved = modelProvider.resolveProviderConfig(model);
+    const provider = createProvider(resolved.provider);
+    const authResolver = modelProvider.resolveAuth?.(model, { log: logg });
+    const trimmed = text.slice(0, MAX_PROMPT_FOR_TITLE);
+    const userMessage = createUserMessage(trimmed);
+
+    logg.info('[title:llm] sending generate request', {
+      model,
+      promptLen: trimmed.length,
+      hasAuth: authResolver !== undefined,
+    });
+
+    const result = authResolver
+      ? await authResolver((auth) =>
+          generate(provider, LLM_TITLE_SYSTEM_PROMPT, [], [userMessage], undefined, { auth }),
+        )
+      : await generate(provider, LLM_TITLE_SYSTEM_PROMPT, [], [userMessage]);
+
+    const rawTitle = extractText(result.message);
+    const title = rawTitle.trim().slice(0, MAX_TITLE_LENGTH);
+    logg.info('[title:llm] LLM response', {
+      rawTitle,
+      rawTitleLen: rawTitle.length,
+      finalTitle: title,
+      finishReason: result.finishReason,
+    });
+
+    if (title.length === 0) {
+      logg.warn('[title:llm] empty title from LLM, falling back to truncation');
+      return text.slice(0, MAX_TITLE_LENGTH);
+    }
+    return title;
+  } catch (err) {
+    logg.warn('[title:llm] LLM call failed, falling back to truncation', { err });
+    return text.slice(0, MAX_TITLE_LENGTH);
+  }
 }
 
 export function promptMetadataTextFromPayload(payload: PromptPayload): string | undefined {

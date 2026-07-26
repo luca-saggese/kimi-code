@@ -88,6 +88,10 @@ export class ProviderManager implements ModelProvider {
     return typeof config === 'function' ? config() : config;
   }
 
+  get defaultModel(): string | undefined {
+    return this.config.defaultModel;
+  }
+
   resolveProviderConfig(model: string): ResolvedRuntimeProvider {
     const alias = this.config.models?.[model];
     if (alias === undefined) {
