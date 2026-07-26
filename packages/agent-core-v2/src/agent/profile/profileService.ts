@@ -428,6 +428,7 @@ export class AgentProfileService implements IAgentProfileService {
   private afterConfigDispatch(changed: Omit<ProfileUpdateData, 'activeToolNames'>): void {
     if (changed.cwd !== undefined) {
       void this.optionsValue.chdir?.(changed.cwd);
+      this.workspace.setWorkDir(changed.cwd);
     }
     if (changed.modelAlias !== undefined) {
       const protocol = this.tryResolveRawModel()?.protocol;
