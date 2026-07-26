@@ -107,27 +107,45 @@ export type IbuCalculatorInput = z.infer<typeof IbuCalculatorInputSchema>;
 type HopAddition = IbuCalculatorInput['hops'][number];
 
 const HOP_AA: Record<string, number> = {
-  'admiral': 14, 'amarillo': 9, 'archer': 5, 'aurora': 8, 'bobek': 5,
-  'bramling cross': 6, 'brewer\'s gold': 9, 'bullion': 8,
-  'cascade': 5.5, 'celeia': 5, 'centennial': 10, 'challenger': 7,
-  'chinook': 13, 'citra': 12, 'columbus': 15, 'crystal': 3.5, 'dana': 10,
-  'dr. rudi': 11, 'east kent goldings': 5, 'first gold': 7.5, 'fuggles': 4.5,
-  'galaxy': 14, 'galena': 13, 'goldings': 5, 'green bullet': 12,
-  'hallertau hersbrucker': 4, 'hallertau mittelfruh': 4.5,
-  'herald': 12, 'herkules': 16, 'horizon': 12, 'kohatu': 6.5, 'liberty': 4,
-  'magnum': 13, 'merkur': 13, 'millennium': 15.5, 'mosaic': 12.5,
-  'motueka': 7, 'mt. hood': 6, 'nelson sauvin': 12.5, 'newport': 15,
-  'northern brewer': 9, 'northdown': 8, 'opal': 6, 'pacific gem': 15,
-  'pacific jade': 13, 'pacifica': 5.5, 'perle': 8, 'pioneer': 9,
-  'polaris': 20, 'progress': 6, 'rakau': 11, 'saaz': 4, 'santiam': 6,
-  'saphir': 3.5, 'select': 5, 'simcoe': 13, 'smaragd': 5,
-  'southern cross': 12, 'sovereign': 5, 'spalt': 4.5, 'sterling': 7.5,
-  'sticklebract': 13, 'super alpha': 13, 'target': 11, 'tettnang': 4.5,
-  'tradition': 6, 'vanguard': 5.5, 'waimea': 16, 'wakatu': 7.5,
-  'warrior': 16, 'willamette': 5.5, 'el dorado': 15, 'idaho 7': 13,
-  'sabro': 14, 'strata': 12, 'hbc 586': 11, 'styrian aurora': 8,
-  'styrian bobek': 5, 'styrian celeia': 5, 'styrian goldings': 5,
+  'admiral': 14, 'amarillo': 9, 'apollo': 18.5, 'aramis': 8, 'archer': 5,
+  'aurora': 8, 'azacca': 15, 'bobek': 5, 'bramling cross': 6, 'bravo': 15,
+  'brewer\'s gold': 9, 'bullion': 8, 'calypso': 13, 'cascade': 5.5,
+  'cashmere': 8, 'celeia': 5, 'centennial': 10, 'challenger': 7,
+  'chinook': 13, 'citra': 12, 'cluster': 7.5, 'columbus': 15, 'comet': 10,
+  'crystal': 3.5, 'dana': 10, 'denali': 15, 'dr. rudi': 11,
+  'east kent goldings': 5, 'ekuanot': 15, 'el dorado': 15, 'ella': 14.5,
+  'enigma': 16.5, 'eureka': 18, 'falconer\'s flight': 11, 'first gold': 7.5,
+  'fuggles': 4.5, 'galaxy': 14, 'galena': 13, 'glacier': 5.5,
+  'goldings': 5, 'green bullet': 12, 'hallertau': 4.5,
+  'hallertau blanka': 11, 'hallertau hersbrucker': 4,
+  'hallertau mittelfruh': 4.5, 'hallertau taurus': 15, 'helga': 6.5,
+  'herald': 12, 'herkules': 16, 'hersbrucker': 3.5, 'horizon': 12,
+  'hbc 586': 11, 'huell melon': 6.5, 'hull melon': 6.5, 'idaho 7': 13,
+  'jarrylo': 15, 'jester': 8, 'kazbek': 5.5, 'kohatu': 6.5,
+  'lemondrop': 6, 'liberty': 4, 'loral': 11.5, 'lotus': 14, 'lublin': 4,
+  'magnum': 13, 'mandarina bavaria': 9, 'mandarina': 9, 'marynka': 9,
+  'medusa': 5.5, 'meridian': 6, 'merkur': 13, 'millennium': 15.5,
+  'monroe': 7.5, 'mosaic': 12.5, 'motueka': 7, 'mt. hood': 6,
+  'nelson sauvin': 12.5, 'newport': 15, 'northern brewer': 9, 'northdown': 8,
+  'nugget': 13, 'olympic': 12, 'omega': 10, 'opal': 6, 'pacific gem': 15,
+  'pacific jade': 13, 'pacifica': 5.5, 'pahto': 18, 'palisade': 8,
+  'pekko': 8.5, 'perle': 8, 'pilgrim': 10, 'pioneer': 9, 'polaris': 20,
+  'premiant': 9, 'pride of ringwood': 9, 'progress': 6, 'rakau': 11,
+  'riwaka': 5.5, 'saaz': 4, 'sabro': 14, 'santiam': 6, 'saphir': 3.5,
+  'select': 5, 'serebrianka': 3.5, 'simcoe': 13, 'smaragd': 5,
+  'sorachi ace': 12, 'southern cross': 12, 'sovereign': 5, 'spalt': 4.5,
+  'sterling': 7.5, 'sticklebract': 13, 'strata': 12, 'styrian aurora': 8,
+  'styrian bobek': 5, 'styrian celeia': 5, 'styrian dragon': 10,
+  'styrian goldings': 5, 'styrian wolf': 13, 'sultana': 13.5,
+  'summit': 17.5, 'super alpha': 13, 'super pride': 14, 'sylva': 6,
+  'taiheke': 7, 'target': 11, 'tettnang': 4.5, 'tomahawk': 17,
+  'topaz': 16.5, 'tradition': 6, 'triple pearl': 10.5, 'triskel': 8,
+  'vanguard': 5.5, 'vic secret': 17, 'victoria': 13, 'waimea': 16,
+  'wai-iti': 3, 'wakatu': 7.5, 'warrior': 16, 'whitbread golding': 6,
+  'willamette': 5.5, 'yakima chief': 10, 'zeus': 16, 'zythos': 11,
 };
+
+const AVAILABLE_HOP_LIST = Object.keys(HOP_AA).sort().join(', ');
 
 export class IbuCalculatorTool implements BuiltinTool<IbuCalculatorInput> {
   readonly name = 'ibu_calculator' as const;
@@ -172,7 +190,8 @@ export class IbuCalculatorTool implements BuiltinTool<IbuCalculatorInput> {
             isError: true,
             output:
               `Unknown hop: "${hop.variety}". ` +
-              'Provide alpha_acids_percent explicitly.',
+              'Provide alpha_acids_percent explicitly, or choose from:\n\n' +
+              AVAILABLE_HOP_LIST,
           });
         }
 
