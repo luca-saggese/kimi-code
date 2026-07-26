@@ -701,7 +701,9 @@ export class FruitCalculatorTool implements BuiltinTool<FruitCalculatorInput> {
     ].join('\n');
     readonly parameters = FRUIT_CALCULATOR_PARAMETERS;
 
-    resolveExecution(args: FruitCalculatorInput): ToolExecution {
+    resolveExecution(rawArgs: FruitCalculatorInput): ToolExecution {
+        const parsed = FruitCalculatorInputSchema.parse(rawArgs);
+        const args = parsed as FruitCalculatorInput;
         return {
             description: `Fruit calc: ${args.fruit_name} @ ${args.intensity}`,
             approvalRule: this.name,
