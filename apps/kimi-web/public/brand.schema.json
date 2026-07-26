@@ -6,17 +6,17 @@
     "productName": {
       "type": "string",
       "description": "Full product name displayed in the sidebar and UI.",
-      "default": "Kimi Code"
+      "default": "Brewing Master"
     },
     "productNameShort": {
       "type": "string",
       "description": "Short product name for space-constrained contexts.",
-      "default": "Kimi"
+      "default": "BrewingM"
     },
     "htmlTitle": {
       "type": "string",
       "description": "The <title> tag content.",
-      "default": "Kimi Code Web"
+      "default": "Brewing Master Web"
     },
     "favicon": {
       "type": "string",
@@ -35,27 +35,27 @@
     "notificationPrefix": {
       "type": "string",
       "description": "Prefix used in browser notification titles.",
-      "default": "Kimi Code"
+      "default": "Brewing Master"
     },
     "daemonName": {
       "type": "string",
       "description": "Name of the daemon/CLI process (used in auth error hints).",
-      "default": "kimi-code"
+      "default": "BrewingM-code"
     },
     "clientName": {
       "type": "string",
       "description": "Client name sent in API handshakes.",
-      "default": "kimi-code-web"
+      "default": "BrewingM-code-web"
     },
     "filePrefix": {
       "type": "string",
       "description": "Prefix used in file names (e.g. debug log downloads).",
-      "default": "kimi-web"
+      "default": "BrewingM-web"
     },
     "storagePrefix": {
       "type": "string",
       "description": "Prefix used for localStorage keys.",
-      "default": "kimi-web"
+      "default": "BrewingM-web"
     },
     "loginHint": {
       "type": "string",
@@ -69,8 +69,8 @@
       "type": "object",
       "properties": {
         "type": {
-          "enum": ["kimi-eyes", "custom-svg", "custom-image"],
-          "description": "Logo type. 'kimi-eyes' uses the built-in Kimi eyes SVG (recolored); 'custom-svg' reads a custom SVG from a URL; 'custom-image' uses a <img> tag."
+          "enum": ["BrewingM-eyes", "custom-svg", "custom-image"],
+          "description": "Logo type. 'BrewingM-eyes' uses the built-in BrewingM eyes SVG (recolored); 'custom-svg' reads a custom SVG from a URL; 'custom-image' uses a <img> tag."
         },
         "ariaLabel": {
           "type": "string",

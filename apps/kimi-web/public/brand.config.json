@@ -1,14 +1,14 @@
 {
   "$schema": "./brand.schema.json",
-  "productName": "Kimi Code",
-  "productNameShort": "Kimi",
-  "htmlTitle": "Kimi Code Web",
+  "productName": "Brewing Master",
+  "productNameShort": "BrewingM",
+  "htmlTitle": "Brewing Master Web",
   "favicon": "/favicon.ico",
   "accentColor": {
     "light": "#1783ff",
     "dark": "#58a6ff"
   },
-  "notificationPrefix": "Kimi Code",
+  "notificationPrefix": "Brewing Master",
   "daemonName": "kimi-code",
   "clientName": "kimi-code-web",
   "filePrefix": "kimi-web",
@@ -17,6 +17,6 @@
   "loginHintZh": "请升级 kimi-code 后重试",
   "logo": {
     "type": "kimi-eyes",
-    "ariaLabel": "Kimi Code"
+    "ariaLabel": "Brewing Master"
   }
 }
