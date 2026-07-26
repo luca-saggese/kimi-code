@@ -19,7 +19,7 @@ import { registerTool } from '#/agent/toolRegistry/toolContribution';
 
 // ── Fruit database ───────────────────────────────────────────────────────────
 
-interface FruitInfo {
+export interface FruitInfo {
     id: string;
     name: string;
     aliases: string[];
@@ -60,6 +60,8 @@ const FRUITS: FruitInfo[] = [
     { id: 'coconut', name: 'Cocco', aliases: [], factor: 1.20, sugarPercent: 3, waterPercent: 47, typicalBrix: 5, ph: 6.0, notes: 'Tostato non zuccherato. Grasso = schiuma.' },
     { id: 'lychee', name: 'Lychee', aliases: ['litchi'], factor: 0.90, sugarPercent: 15, waterPercent: 82, typicalBrix: 18, ph: 4.5, notes: 'Floreale delicato.' },
     // Citrus
+    { id: 'orange', name: 'Arancia', aliases: ['arance', 'orange', 'arancia dolce'], factor: 0.90, sugarPercent: 9, waterPercent: 87, typicalBrix: 12, ph: 3.6, notes: 'Succo + scorza. Navel, Valencia. Meno intensa della rossa.' },
+    { id: 'mandarin', name: 'Mandarino', aliases: ['mandarini', 'mandarin', 'tangerine', 'clementina'], factor: 0.80, sugarPercent: 10, waterPercent: 85, typicalBrix: 13, ph: 3.7, notes: 'Più aromatico dell\'arancia. Ottimo in wit e saison.' },
     { id: 'blood_orange', name: 'Arancia rossa', aliases: ['tarocco', 'blood orange'], factor: 0.80, sugarPercent: 9, waterPercent: 87, typicalBrix: 12, ph: 3.5, notes: 'Succo + scorza. Wit e sour.' },
     { id: 'grapefruit', name: 'Pompelmo rosa', aliases: ['pompelmo', 'grapefruit'], factor: 0.70, sugarPercent: 6, waterPercent: 90, typicalBrix: 10, ph: 3.2, notes: 'Amareggiante. Interagisce farmaci.' },
     { id: 'lemon_lime', name: 'Limone / lime', aliases: ['limone', 'lime', 'limoni'], factor: 0.50, sugarPercent: 2, waterPercent: 89, typicalBrix: 8, ph: 2.2, notes: 'Succo + scorza. ACIDO.' },
@@ -134,8 +136,22 @@ type BeerStyle = keyof typeof STYLE_ADJ;
 
 // ── Input schema ─────────────────────────────────────────────────────────────
 
+const FRUIT_PARAMS_SCHEMA = z.object({
+    name: z.string().trim().min(1).describe('Nome del frutto.'),
+    factor: z.number().positive().describe('Fattore aromatico (es. 1.00 = fragola, 0.50 = ribes nero, 1.50 = anguria). Più basso = più aromatico.'),
+    sugarPercent: z.number().min(0).max(100).describe('g zuccheri per 100 g di frutto fresco.'),
+    waterPercent: z.number().min(0).max(100).describe('g acqua per 100 g di frutto fresco.'),
+    typicalBrix: z.number().min(0).max(100).describe('°Brix approssimativo del frutto fresco.'),
+    ph: z.number().min(0).max(14).describe('pH del frutto fresco.'),
+    notes: z.string().default(''),
+});
+
+export type FruitParams = z.infer<typeof FRUIT_PARAMS_SCHEMA>;
+
 export const FruitCalculatorInputSchema = z.object({
     fruit_name: z.string().trim().min(1).describe('Nome del frutto principale in italiano.'),
+    /** Parametri per un frutto non presente nel database integrato. Se fornito, sovrascrive la ricerca nel database. */
+    fruit_params: FRUIT_PARAMS_SCHEMA.optional().describe('Parametri del frutto (fattore aromatico, zuccheri, acqua, °Brix, pH). Obbligatorio solo se il frutto non è presente nel database.'),
     batch_size_liters: z.number().positive().describe("Volume attuale della birra dopo gli altri frutti e prima del frutto principale (L)."),
     intensity: z.enum(['accenno', 'leggero', 'medio', 'intenso', 'estremo']).default('leggero'),
     fruit_form: z.enum(['fresh', 'puree', 'juice', 'concentrate', 'lyophilized', 'dried']).default('fresh'),
@@ -150,6 +166,8 @@ export const FruitCalculatorInputSchema = z.object({
         fruit_name: z.string().trim().min(1),
         fresh_equivalent_kg: z.number().positive(),
         addition_method: z.enum(['secondary', 'whirlpool', 'end_boil', 'mash', 'keg']).default('secondary'),
+        /** Parametri per un frutto non nel database. Se fornito, sovrascrive la ricerca. */
+        fruit_params: FRUIT_PARAMS_SCHEMA.optional(),
     })).default([]).describe('Altri frutti già presenti, ciascuno con nome, kg freschi eq. e metodo di aggiunta.'),
     show_details: z.boolean().default(true),
 }).superRefine((input, ctx) => {
@@ -278,11 +296,37 @@ interface CalcResult {
     ambiguousMatches: string[];
 }
 
+/** Build a FruitInfo from user-supplied fruit_params. */
+function fruitInfoFromParams(name: string, params: FruitParams): FruitInfo {
+    return {
+        id: normalizeName(name),
+        name,
+        aliases: [],
+        factor: params.factor,
+        sugarPercent: params.sugarPercent,
+        waterPercent: params.waterPercent,
+        typicalBrix: params.typicalBrix,
+        ph: params.ph,
+        notes: params.notes,
+    };
+}
+
+/** Resolve a fruit by name, falling back to fruit_params when the name is not in the database. */
+function resolveFruit(raw: string, params?: FruitParams): { fruit: FruitInfo; ambiguousMatches: string[]; fromParams: boolean } {
+    const matches = findAllMatches(raw);
+    if (matches.length > 0) {
+        const fruit = matches[0]!;
+        const ambiguousMatches = matches.length > 1 ? matches.slice(1).map(f => f.name) : [];
+        return { fruit, ambiguousMatches, fromParams: false };
+    }
+    if (params) {
+        return { fruit: fruitInfoFromParams(raw, params), ambiguousMatches: [], fromParams: true };
+    }
+    throw new Error(`Frutto "${raw}" non trovato nel database. Fornisci fruit_params con i dati del frutto (fattore aromatico, zuccheri, acqua, °Brix, pH).`);
+}
+
 function compute(input: FruitCalculatorInput): CalcResult {
-    const matches = findAllMatches(input.fruit_name);
-    if (matches.length === 0) throw new Error(`Frutto "${input.fruit_name}" non trovato nel database.`);
-    const fruit = matches[0]!;
-    const ambiguousMatches = matches.length > 1 ? matches.slice(1).map(f => f.name) : [];
+    const { fruit, ambiguousMatches } = resolveFruit(input.fruit_name, input.fruit_params);
 
     const intensity = INTENSITIES.find(i => i.label.toLowerCase() === input.intensity)!;
     const method = METHODS[input.addition_method as AdditionMethod]!;
@@ -294,14 +338,7 @@ function compute(input: FruitCalculatorInput): CalcResult {
     // Compute sensory contribution of other fruits
     let totalOtherReferenceGL = 0;
     for (const other of (input.other_fruits ?? [])) {
-        const otherMatches = findAllMatches(other.fruit_name);
-        if (otherMatches.length === 0) {
-            throw new Error(`Altro frutto "${other.fruit_name}" non trovato nel database.`);
-        }
-        if (otherMatches.length > 1) {
-            throw new Error(`Altro frutto "${other.fruit_name}" ambiguo. Possibili: ${otherMatches.map(f => f.name).join(', ')}. Specifica il nome esatto.`);
-        }
-        const otherFruit = otherMatches[0]!;
+        const { fruit: otherFruit } = resolveFruit(other.fruit_name, other.fruit_params);
         const otherMethod = METHODS[other.addition_method as AdditionMethod]!;
         const otherGL = (other.fresh_equivalent_kg * 1000) / input.batch_size_liters;
         totalOtherReferenceGL += otherGL * otherMethod.efficiency / otherFruit.factor / style.factor;
@@ -363,14 +400,22 @@ function formatResults(input: FruitCalculatorInput): string {
     lines.push(`# 🍓 Fruit Calculator: ${input.fruit_name} in ${input.batch_size_liters}L`);
     lines.push('');
 
-    const matches = findAllMatches(input.fruit_name);
-    if (matches.length === 0) {
-        lines.push(`⚠️ **"${input.fruit_name}" non trovato.** Frutti disponibili:`);
-        for (const f of FRUITS) lines.push(`- ${f.name} (×${f.factor.toFixed(2)})`);
+    let calc: CalcResult;
+    try {
+        calc = compute(input);
+    } catch (e) {
+        if (e instanceof Error && e.message.includes('non trovato nel database')) {
+            lines.push(`⚠️ **"${input.fruit_name}" non trovato nel database.**`);
+            lines.push('');
+            lines.push('🔍 **Cerca online** i valori nutrizionali del frutto (zuccheri g/100g, acqua g/100g, pH) e stima il **fattore aromatico** (1.00 = fragola, <1 = più aromatico, >1 = meno aromatico). Poi riempi `fruit_params` e riprova la chiamata.');
+            lines.push('');
+            lines.push('Frutti già disponibili nel database:');
+            for (const f of FRUITS) lines.push(`- ${f.name} (×${f.factor.toFixed(2)})`);
+            return lines.join('\n');
+        }
+        lines.push(`❌ **Errore:** ${e instanceof Error ? e.message : String(e)}`);
         return lines.join('\n');
     }
-
-    const calc = compute(input);
     const formLabel = FORMS[calc.form].label;
     const methodLabel = METHODS[input.addition_method as AdditionMethod]!.label;
 
@@ -379,8 +424,15 @@ function formatResults(input: FruitCalculatorInput): string {
     lines.push('');
     lines.push('| Parametro | Valore |');
     lines.push('|---|---|');
-    lines.push(`| Frutto | **${calc.fruit.name}** |`);
+    if (input.fruit_params && !FRUITS.some(f => normalizeName(f.name) === normalizeName(input.fruit_name) || f.aliases.some(a => normalizeName(a) === normalizeName(input.fruit_name)))) {
+        lines.push(`| Frutto | **${calc.fruit.name}** *(parametri personalizzati)* |`);
+    } else {
+        lines.push(`| Frutto | **${calc.fruit.name}** |`);
+    }
     lines.push(`| Fattore aromatico | ×${calc.fruit.factor.toFixed(2)} |`);
+    lines.push(`| Zuccheri | ${calc.fruit.sugarPercent} g/100g |`);
+    lines.push(`| Acqua | ${calc.fruit.waterPercent} g/100g |`);
+    lines.push(`| °Brix | ${calc.fruit.typicalBrix} |`);
     lines.push(`| Intensità | **${calc.intensityLabel}** |`);
     lines.push(`| Formato | ${formLabel} |`);
     lines.push(`| Metodo | ${methodLabel} (~${(calc.methodEfficiency * 100).toFixed(0)}% efficienza) |`);
@@ -555,11 +607,12 @@ if ((calc.otherFruits ?? []).length > 0) {
         // Subtract other fruits contribution (same reference-scale logic as compute)
         let otherContrib = 0;
         for (const other of (calc.otherFruits ?? [])) {
-            const of = findFruit(other.fruit_name);
-            if (!of) continue;
-            const om = METHODS[other.addition_method as AdditionMethod]!;
-            const ogl = (other.fresh_equivalent_kg * 1000) / input.batch_size_liters;
-            otherContrib += ogl * om.efficiency / of.factor / calc.styleFactor;
+            try {
+                const { fruit: of } = resolveFruit(other.fruit_name, other.fruit_params);
+                const om = METHODS[other.addition_method as AdditionMethod]!;
+                const ogl = (other.fresh_equivalent_kg * 1000) / input.batch_size_liters;
+                otherContrib += ogl * om.efficiency / of.factor / calc.styleFactor;
+            } catch { /* skip unknown fruits in the table */ }
         }
         const remainingMinRef = Math.max(0, int.minGL - otherContrib);
         const remainingMaxRef = Math.max(0, int.maxGL - otherContrib);
@@ -580,7 +633,22 @@ if ((calc.otherFruits ?? []).length > 0) {
 const FRUIT_CALCULATOR_PARAMETERS: Record<string, unknown> = {
     type: 'object',
     properties: {
-        fruit_name: { type: 'string', description: 'Nome del frutto principale in italiano. Es: "Lampone", "Mango", "Fragola", "Frutto della passione".' },
+        fruit_name: { type: 'string', description: 'Nome del frutto principale in italiano. Es: "Lampone", "Mango", "Fragola", "Frutto della passione". Se il frutto non è nel database, cercalo online e passa i dati tramite fruit_params.' },
+        fruit_params: {
+            type: 'object',
+            description: '⚠️ OBBLIGATORIO se il frutto non è nel database. Cerca online i valori nutrizionali (zuccheri, acqua, pH, °Brix) e stima il fattore aromatico, poi compila questo oggetto e riprova la chiamata.',
+            properties: {
+                name: { type: 'string', minLength: 1, description: 'Nome del frutto.' },
+                factor: { type: 'number', exclusiveMinimum: 0, description: 'Fattore aromatico (es. 1.00 = fragola, 0.50 = ribes nero, 1.50 = anguria). Più basso = più aromatico. Stima in base all\'intensità aromatica del frutto rispetto alla fragola.' },
+                sugarPercent: { type: 'number', minimum: 0, maximum: 100, description: 'g zuccheri per 100 g di frutto fresco. Cerca il valore nutrizionale online.' },
+                waterPercent: { type: 'number', minimum: 0, maximum: 100, description: 'g acqua per 100 g di frutto fresco. Cerca il valore nutrizionale online.' },
+                typicalBrix: { type: 'number', minimum: 0, maximum: 100, description: '°Brix approssimativo del frutto fresco (soluble solids). Tipicamente ~zuccheri% + 3-5 per altri solidi solubili.' },
+                ph: { type: 'number', minimum: 0, maximum: 14, description: 'pH del frutto fresco. Cerca online.' },
+                notes: { type: 'string', default: '' },
+            },
+            required: ['name', 'factor', 'sugarPercent', 'waterPercent', 'typicalBrix', 'ph'],
+            additionalProperties: false,
+        },
         batch_size_liters: { type: 'number', exclusiveMinimum: 0, description: "Volume attuale della birra dopo gli altri frutti e prima del frutto principale (L)." },
         intensity: { type: 'string', enum: ['accenno', 'leggero', 'medio', 'intenso', 'estremo'], default: 'leggero' },
         fruit_form: { type: 'string', enum: ['fresh', 'puree', 'juice', 'concentrate', 'lyophilized', 'dried'], default: 'fresh' },
@@ -597,6 +665,21 @@ const FRUIT_CALCULATOR_PARAMETERS: Record<string, unknown> = {
                     fruit_name: { type: 'string', minLength: 1 },
                     fresh_equivalent_kg: { type: 'number', exclusiveMinimum: 0 },
                     addition_method: { type: 'string', enum: ['secondary', 'whirlpool', 'end_boil', 'mash', 'keg'], default: 'secondary' },
+                    fruit_params: {
+                        type: 'object',
+                        description: '⚠️ Obbligatorio se il frutto non è nel database. Cerca online e compila.',
+                        properties: {
+                            name: { type: 'string', minLength: 1 },
+                            factor: { type: 'number', exclusiveMinimum: 0 },
+                            sugarPercent: { type: 'number', minimum: 0, maximum: 100 },
+                            waterPercent: { type: 'number', minimum: 0, maximum: 100 },
+                            typicalBrix: { type: 'number', minimum: 0, maximum: 100 },
+                            ph: { type: 'number', minimum: 0, maximum: 14 },
+                            notes: { type: 'string', default: '' },
+                        },
+                        required: ['name', 'factor', 'sugarPercent', 'waterPercent', 'typicalBrix', 'ph'],
+                        additionalProperties: false,
+                    },
                 },
                 required: ['fruit_name', 'fresh_equivalent_kg'],
                 additionalProperties: false,
@@ -611,7 +694,11 @@ const FRUIT_CALCULATOR_PARAMETERS: Record<string, unknown> = {
 
 export class FruitCalculatorTool implements BuiltinTool<FruitCalculatorInput> {
     readonly name = 'fruit_calculator' as const;
-    readonly description = "Stima il dosaggio di frutta per fruit beers (intervallo, non quantità esatta). Conversione tra formati specifica per frutto. Supporta più frutti con potenza aromatica individuale, ABV iniziale per stima ABV finale, e tintura con parametri propri.";
+    readonly description = [
+        'Stima il dosaggio di frutta per fruit beers (intervallo, non quantità esatta). Conversione tra formati specifica per frutto. Supporta più frutti con potenza aromatica individuale, ABV iniziale per stima ABV finale, e tintura con parametri propri.',
+        '',
+        '⚠️ ISTRUZIONE IMPORTANTE: se il frutto richiesto dall\'utente NON è presente nel database interno (riceverai un errore "non trovato nel database"), DEVI cercare online i valori nutrizionali del frutto (zuccheri g/100g, acqua g/100g, pH) e stimare il fattore aromatico rispetto alla fragola (1.00), poi RIPROVARE la chiamata passando i dati trovati nel campo fruit_params. Non arrenderti al primo errore: cerca e riprova.',
+    ].join('\n');
     readonly parameters = FRUIT_CALCULATOR_PARAMETERS;
 
     resolveExecution(args: FruitCalculatorInput): ToolExecution {
