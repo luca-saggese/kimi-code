@@ -604,8 +604,7 @@ onBeforeUnmount(() => {
 const logoRef = ref<SVGSVGElement | null>(null);
 let blinkTimer: ReturnType<typeof setTimeout> | undefined;
 
-// Temporarily hide the new-workspace button while we evaluate the entry point.
-const showNewWorkspaceButton = false;
+const showNewWorkspaceButton = true;
 
 function blinkOnce(): void {
   const el = logoRef.value;
