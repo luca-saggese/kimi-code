@@ -72,10 +72,12 @@ import {
   BUILTIN_SKILLS,
   ErrorCodes,
   EXTRA_SKILL_DIRS_SECTION,
+  IAgentProfileService,
   IAgentSkillService,
   IBootstrapService,
   IConfigService,
   IEventService,
+  IFlagService,
   IPluginService,
   ISessionIndex,
   ISessionLifecycleService,
@@ -293,6 +295,10 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
           .activate({ name: parsed.id, args: req.body.args });
         // Keep the easy-title behavior of the native RPC / TUI path: a first
         // `/<skill>` message titles the session (same as routes/prompts.ts).
+        const flags = core.accessor.get(IFlagService);
+        const model = flags.enabled('llm-session-title')
+          ? agent.accessor.get(IAgentProfileService).getProvider()
+          : undefined;
         await applyPromptMetadataUpdate(
           {
             metadata: resolved.handle.accessor.get(ISessionMetadata),
@@ -300,6 +306,7 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
             sessionId: session_id,
           },
           promptMetadataTextFromSkill({ name: parsed.id, args: req.body.args }),
+          model,
         );
         requestLog(req)?.info({ session_id, skill_name: parsed.id }, 'skill activated');
         reply.send(okEnvelope({ activated: true, skill_name: parsed.id }, req.id));

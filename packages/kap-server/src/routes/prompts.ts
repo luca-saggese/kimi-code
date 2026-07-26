@@ -20,6 +20,7 @@ import {
   IAuthSummaryService,
   IEventService,
   IFileService,
+  IFlagService,
   ISessionMetadata,
   promptMetadataTextFromContentParts,
   type ContentPart,
@@ -209,11 +210,13 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
         if (resolvedBody.permission_mode !== undefined) resolved.permissionMode.setMode(resolvedBody.permission_mode);
         const parts = contentToCoreParts(resolvedBody.content);
         const session = await resolveSession(core, session_id);
+        const flags = core.accessor.get(IFlagService);
+        const model = flags.enabled('llm-session-title') ? resolved.profile.getProvider() : undefined;
         await applyPromptMetadataUpdate({
           metadata: session.accessor.get(ISessionMetadata),
           eventService: core.accessor.get(IEventService),
           sessionId: session_id,
-        }, promptMetadataTextFromContentParts(parts));
+        }, promptMetadataTextFromContentParts(parts), model);
         const handle = await resolved.prompt.enqueue({ message: {
           role: 'user',
           content: parts,

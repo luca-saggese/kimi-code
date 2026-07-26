@@ -192,6 +192,7 @@ export * from '#/agent/toolDedupe/toolDedupe';
 export * from '#/agent/toolDedupe/toolDedupeService';
 import '#/agent/toolSelect/flag';
 import '#/agent/faultInjection/flag';
+import '#/agent/rpc/titleFlag';
 import '#/agent/toolSelect/tools/select-tools';
 export * from '#/agent/toolSelect/dynamicTools';
 export * from '#/agent/toolSelect/toolSelect';

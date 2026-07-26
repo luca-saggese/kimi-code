@@ -8,8 +8,11 @@
  */
 
 import type { ContentPart } from '#/app/llmProtocol/message';
+import { createUserMessage } from '#/app/llmProtocol/message';
 import type { IEventService } from '#/app/event/event';
+import type { Model } from '#/app/model/modelInstance';
 import type { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { type GenerateResult, generate } from '#/app/llmProtocol/generate';
 
 import { extractImageCompressionCaptions } from '#/agent/media/image-compress';
 
@@ -21,6 +24,9 @@ import type {
 
 const MAX_TITLE_LENGTH = 200;
 const MAX_LAST_PROMPT_LENGTH = 4000;
+const MAX_PROMPT_FOR_TITLE = 1000;
+const LLM_TITLE_SYSTEM_PROMPT =
+  'You are a title generator. Given the first message of a conversation, generate a concise, descriptive title in 5-8 words. Respond with ONLY the title — no quotes, periods, or extra text.';
 
 export function titleFromPromptMetadataText(text: string): string {
   return text.slice(0, MAX_TITLE_LENGTH);
@@ -73,6 +79,7 @@ export interface PromptMetadataUpdateTarget {
 export async function applyPromptMetadataUpdate(
   target: PromptMetadataUpdateTarget,
   text: string | undefined,
+  modelOrTitle?: string | Model,
 ): Promise<void> {
   if (text === undefined) return;
   const current = await target.metadata.read();
@@ -80,7 +87,13 @@ export async function applyPromptMetadataUpdate(
     lastPrompt: text,
   };
   if (!current.isCustomTitle && isUntitled(current.title)) {
-    patch.title = titleFromPromptMetadataText(text);
+    if (typeof modelOrTitle === 'string') {
+      patch.title = modelOrTitle.slice(0, MAX_TITLE_LENGTH);
+    } else if (modelOrTitle !== undefined) {
+      patch.title = await titleFromPromptViaLLM(modelOrTitle, text);
+    } else {
+      patch.title = titleFromPromptMetadataText(text);
+    }
     patch.isCustomTitle = false;
   }
   await target.metadata.update(patch);
@@ -97,6 +110,38 @@ export async function applyPromptMetadataUpdate(
       },
     },
   });
+}
+
+/**
+ * Generate a session title via an LLM call instead of trivially
+ * truncating the user's first prompt. Falls back to truncation on
+ * any error so title generation is never a hard failure.
+ */
+async function titleFromPromptViaLLM(
+  model: Model,
+  text: string,
+): Promise<string> {
+  try {
+    const trimmed = text.slice(0, MAX_PROMPT_FOR_TITLE);
+    let responseText = '';
+    for await (const event of model.request(
+      { systemPrompt: LLM_TITLE_SYSTEM_PROMPT, tools: [], messages: [createUserMessage(trimmed)] },
+      new AbortController().signal,
+    )) {
+      if (event.type === 'finish') {
+        responseText = (event.message as { content: Array<{ type: string; text?: string }> }).content
+          .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+          .map((p) => p.text)
+          .join('')
+          .trim()
+          .slice(0, MAX_TITLE_LENGTH);
+      }
+    }
+    if (responseText.length === 0) return text.slice(0, MAX_TITLE_LENGTH);
+    return responseText;
+  } catch {
+    return text.slice(0, MAX_TITLE_LENGTH);
+  }
 }
 
 function promptPartText(part: ContentPart): string | undefined {

@@ -19,6 +19,7 @@ import { IPluginService } from '#/app/plugin/plugin';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentShellCommandService } from '#/agent/shellCommand/shellCommand';
+import { IFlagService } from '#/app/flag/flag';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionBtwService } from '#/session/btw/btw';
@@ -108,6 +109,7 @@ export class AgentRPCService implements IAgentRPCService {
     @ISessionMetadata private readonly metadata: ISessionMetadata,
     @ISessionContext private readonly sessionContext: ISessionContext,
     @ISessionBtwService private readonly btw: ISessionBtwService,
+    @IFlagService private readonly flags: IFlagService,
   ) { }
 
   async prompt(payload: PromptPayload): Promise<PromptLaunchResult | undefined> {
@@ -300,6 +302,8 @@ export class AgentRPCService implements IAgentRPCService {
   }
 
   private async updatePromptMetadata(text: string | undefined): Promise<void> {
+    const model =
+      this.flags.enabled('llm-session-title') ? this.profile.getProvider() : undefined;
     await applyPromptMetadataUpdate(
       {
         metadata: this.metadata,
@@ -307,6 +311,7 @@ export class AgentRPCService implements IAgentRPCService {
         sessionId: this.sessionContext.sessionId,
       },
       text,
+      model,
     );
   }
 
