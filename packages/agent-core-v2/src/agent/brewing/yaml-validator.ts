@@ -609,210 +609,13 @@ function validateRecipe(r: ParsedRecipe): ValidationResult {
 }
 
 // ============================================================================
-// LLM REVIEW PROMPT BUILDER
-// ============================================================================
-
-interface LlmReviewContext {
-  recipeSummary: string;
-  deterministicReport: string;
-  llmPrompt: string;
-  outputSchema: Record<string, unknown>;
-}
-
-function buildLlmReviewContext(r: ParsedRecipe, v: ValidationResult, style: BjcpStyle | undefined): LlmReviewContext {
-  const recipeSummary = [
-    `Ricetta: ${r.recipe_name}`,
-    `Stile: ${r.beer_style}${style ? ` (${style.code} — ${style.name})` : ''}`,
-    `Batch: ${r.batch_size_liters}L | OG: ${r.og.toFixed(3)} | FG: ${r.fg.toFixed(3)} | IBU: ${r.ibu} | ABV: ${v.abv.toFixed(1)}%`,
-    r.ebc !== undefined ? `EBC: ${r.ebc}` : null,
-    `Impianto: ${r.impianto ?? 'non specificato'}`,
-    '',
-    '── Grist ──',
-    ...r.grain_bill.map(g => `  ${g.malt}: ${g.kg}kg${g.percent !== undefined ? ` (${g.percent}%)` : ''}`),
-    '',
-    '── Luppolatura ──',
-    ...r.hop_schedule.map(h => `  ${h.variety}: ${h.grams}g @ ${h.time_minutes}min (${h.use})${h.aa_percent !== undefined ? ` AA ${h.aa_percent}%` : ''}${h.ibu_contrib !== undefined ? ` [${h.ibu_contrib} IBU]` : ''}`),
-    '',
-    `── Lievito ──`,
-    `  ${r.yeast.strain}${r.yeast.lab ? ` (${r.yeast.lab})` : ''}${r.yeast.attenuation_percent !== undefined ? ` att. ${r.yeast.attenuation_percent}%` : ''}`,
-    r.fermentation_temp_c !== undefined ? `  Temperatura: ${r.fermentation_temp_c}°C` : null,
-    '',
-    r.mash_temp_c !== undefined || r.mash_steps ? '── Mash ──' : null,
-    r.mash_temp_c !== undefined ? `  Single infusion: ${r.mash_temp_c}°C` : null,
-    ...(r.mash_steps ?? []).map(s => `  Step: ${s.temperature_c}°C × ${s.time_minutes}min`),
-    '',
-    r.water_profile ? '── Acqua ──' : null,
-    r.water_profile ? `  Ca:${r.water_profile.ca} Mg:${r.water_profile.mg} Na:${r.water_profile.na} Cl:${r.water_profile.cl} SO₄:${r.water_profile.so4} HCO₃:${r.water_profile.hco3}` : null,
-    '',
-    r.carbonation_volumes !== undefined ? `Carbonazione: ${r.carbonation_volumes} vol${r.carbonation_method ? ` (${r.carbonation_method})` : ''}${r.priming_sugar_gl !== undefined ? ` — ${r.priming_sugar_gl} g/L priming` : ''}` : null,
-    r.boil_time_minutes !== undefined ? `Bollitura: ${r.boil_time_minutes} min` : null,
-    '',
-    r.descrizione ? `Descrizione: ${r.descrizione}` : null,
-    r.note ? `Note: ${r.note}` : null,
-  ].filter(x => x !== null).join('\n');
-
-  const deterministicReport = [
-    `=== REPORT DETERMINISTICO ===`,
-    `ABV calcolato: ${v.abv.toFixed(1)}%`,
-    `IBU/OG ratio: ${v.ibuRatio.toFixed(2)} (BU/GU: ${v.buGu.toFixed(2)})`,
-    `Malti speciali: ${v.specPct.toFixed(1)}%`,
-    `Grani totali: ${v.totalGrainKg.toFixed(2)}kg`,
-    `Luppolo totale: ${v.totalHopGrams}g (dry hop: ${v.dryHopGrams}g)`,
-    '',
-    v.styleCode ? `Stile BJCP match: ${v.styleMatch ? '✅ IN STYLE' : '❌ FUORI STILE'}` : 'Stile BJCP: non trovato',
-    ...v.styleDeviations.map(d => `  Deviazione: ${d}`),
-    '',
-    v.issues.length > 0 ? 'ERRORI CRITICI:' : 'Nessun errore critico.',
-    ...v.issues.map(i => `  ❌ ${i}`),
-    '',
-    v.warnings.length > 0 ? 'WARNING:' : 'Nessun warning.',
-    ...v.warnings.map(w => `  ⚠️ ${w}`),
-    '',
-    v.volumeIssues.length > 0 ? 'PROBLEMI VOLUMI:' : '',
-    ...v.volumeIssues.map(iv => `  📐 ${iv}`),
-    '',
-    v.carbonationIssues.length > 0 ? 'PROBLEMI CARBONAZIONE:' : '',
-    ...v.carbonationIssues.map(ic => `  🫧 ${ic}`),
-  ].join('\n');
-
-  const llmPrompt = [
-    `Sei un revisore brassicolo senior specializzato in homebrewing all grain e`,
-    `impianti all-in-one.`,
-    ``,
-    `Devi revisionare criticamente una ricetta di birra. Non devi assecondare la`,
-    `ricetta né riscriverla subito. Devi trovare errori, contraddizioni, rischi e`,
-    `scelte subottimali.`,
-    ``,
-    `Riceverai:`,
-    ``,
-    `1. la ricetta strutturata;`,
-    `2. i risultati dei calcolatori deterministici;`,
-    `3. gli errori e warning del validator tecnico;`,
-    `4. eventuali dati BJCP;`,
-    `5. dati ufficiali degli ingredienti e del lievito, quando disponibili.`,
-    ``,
-    `Valuta separatamente:`,
-    ``,
-    `- validità matematica;`,
-    `- coerenza dei volumi;`,
-    `- compatibilità con l'impianto;`,
-    `- mash e filtrabilità;`,
-    `- grist;`,
-    `- luppolatura;`,
-    `- lievito e fermentazione;`,
-    `- acqua;`,
-    `- carbonazione e sicurezza;`,
-    `- conformità stilistica;`,
-    `- plausibilità sensoriale;`,
-    `- chiarezza e riproducibilità della procedura;`,
-    `- attendibilità delle affermazioni storiche o tecniche.`,
-    ``,
-    `Regole:`,
-    ``,
-    `- Non considerare corretta una scelta solo perché è comune.`,
-    `- Non inventare dati mancanti.`,
-    `- Distingui tra errore critico, warning e scelta opzionale.`,
-    `- Distingui validità tecnica da conformità BJCP.`,
-    `- Se una ricetta è creativa, non penalizzarla automaticamente: verifica però`,
-    `  che sia classificata correttamente.`,
-    `- Non ripetere i soli errori già riportati dal validator deterministico:`,
-    `  spiegane l'impatto pratico.`,
-    `- Segnala contraddizioni tra campi strutturati e testo descrittivo.`,
-    `- Contesta affermazioni assolute non supportate.`,
-    `- Proponi correzioni minime prima di ridisegnare l'intera ricetta.`,
-    `- Ogni correzione deve indicare cosa cambia e perché.`,
-    ``,
-    `Restituisci esclusivamente JSON conforme allo schema richiesto.`,
-    ``,
-    `=== RICETTA ===`,
-    recipeSummary,
-    ``,
-    `=== DATI BJCP ===`,
-    style ? `${style.code} — ${style.name}: OG ${style.og_min.toFixed(3)}-${style.og_max.toFixed(3)}, FG ${style.fg_min.toFixed(3)}-${style.fg_max.toFixed(3)}, ABV ${style.abv_min}-${style.abv_max}%, IBU ${style.ibu_min}-${style.ibu_max}, EBC ${style.ebc_min}-${style.ebc_max}` : 'Stile non trovato nel database BJCP.',
-    ``,
-    `=== REPORT DETERMINISTICO ===`,
-    deterministicReport,
-  ].join('\n');
-
-  const outputSchema = {
-    type: 'object',
-    properties: {
-      overall_status: { type: 'string', enum: ['valid', 'needs_revision', 'invalid'], description: 'Giudizio complessivo' },
-      technical_validity: { type: 'string', enum: ['valid', 'questionable', 'invalid'], description: 'Validità tecnica/matematica' },
-      style_conformity: { type: 'string', enum: ['in_style', 'borderline', 'out_of_style', 'creative'], description: 'Conformità BJCP' },
-      confidence: { type: 'number', minimum: 0, maximum: 1, description: 'Confidenza del revisore (0-1)' },
-      critical_issues: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            code: { type: 'string', description: 'Codice errore (es. MASH_PLAN_CONTRADICTION)' },
-            area: { type: 'string', description: 'Area: mash, grist, hops, yeast, water, volumes, carbonation, style, procedure, safety' },
-            finding: { type: 'string', description: 'Descrizione del problema' },
-            impact: { type: 'string', description: 'Impatto pratico' },
-            recommended_change: { type: 'string', description: 'Correzione proposta' },
-          },
-          required: ['code', 'area', 'finding', 'impact', 'recommended_change'],
-        },
-      },
-      warnings: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            code: { type: 'string' },
-            area: { type: 'string' },
-            finding: { type: 'string' },
-            suggestion: { type: 'string' },
-          },
-          required: ['code', 'area', 'finding', 'suggestion'],
-        },
-      },
-      sensory_assessment: {
-        type: 'object',
-        properties: {
-          expected_balance: { type: 'string', description: 'Bilanciamento atteso (es. secco, maltato, amaro, etc.)' },
-          main_risk: { type: 'string', description: 'Rischio sensoriale principale' },
-          coherence: { type: 'string', enum: ['excellent', 'good', 'questionable', 'contradictory'] },
-        },
-        required: ['expected_balance', 'main_risk', 'coherence'],
-      },
-      style_assessment: {
-        type: 'object',
-        properties: {
-          declared_style: { type: 'string' },
-          classification: { type: 'string', enum: ['in_style', 'borderline', 'out_of_style', 'creative'] },
-          deviations: { type: 'array', items: { type: 'string' } },
-        },
-        required: ['declared_style', 'classification', 'deviations'],
-      },
-      recommended_actions: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            priority: { type: 'integer', minimum: 1 },
-            action: { type: 'string' },
-            detail: { type: 'string' },
-          },
-          required: ['priority', 'action'],
-        },
-      },
-    },
-    required: ['overall_status', 'technical_validity', 'style_conformity', 'confidence', 'critical_issues', 'warnings', 'sensory_assessment', 'style_assessment', 'recommended_actions'],
-  };
-
-  return { recipeSummary, deterministicReport, llmPrompt, outputSchema };
-}
-
-// ============================================================================
 // TOOL
 // ============================================================================
 
 export class YamlValidatorTool implements BuiltinTool<YamlValidatorInput> {
   readonly name = 'yaml_validator' as const;
   readonly description =
-    'Validate a beer recipe YAML file against BJCP style guidelines. Reads the YAML, runs deterministic checks (OG, FG, ABV, IBU, EBC, grain bill, hop schedule, mash, water, volumes, carbonation, efficiency), then produces a complete LLM review prompt with all gathered context for deep qualitative analysis by the host AI.';
+    'Validate a beer recipe YAML file against BJCP style guidelines. Reads the YAML and runs ALL deterministic checks: OG, FG, ABV, IBU, EBC, grain bill composition, hop schedule, mash temperature, water profile, volume consistency, carbonation, efficiency sanity, and more. Use this FIRST when validating a recipe. Then use recipe_validator with the structured data for LLM qualitative review.';
   readonly parameters: Record<string, unknown> = toInputJsonSchema(YamlValidatorInputSchema);
 
   resolveExecution(args: YamlValidatorInput): ToolExecution {
@@ -825,17 +628,13 @@ export class YamlValidatorTool implements BuiltinTool<YamlValidatorInput> {
 
   private execute(args: YamlValidatorInput): Promise<ExecutableToolResult> {
     try {
-      // 1. Parse YAML
       const recipe = parseYamlRecipe(args.input_file);
-
-      // 2. Deterministic validation
       const v = validateRecipe(recipe);
       const style = findStyle(recipe.beer_style);
       const allMatches = findAllStyles(recipe.beer_style);
       const valid = v.issues.length === 0;
 
-      // 3. Build deterministic report
-      const detReport = [
+      const report = [
         `**Validazione ricetta: ${recipe.recipe_name}**`,
         `File: ${args.input_file}`,
         style
@@ -854,31 +653,11 @@ export class YamlValidatorTool implements BuiltinTool<YamlValidatorInput> {
         ...(v.warnings.length ? ['', '⚠️ Avvisi:', ...v.warnings.map(w => `  ⚠️ ${w}`)] : []),
         ...(v.volumeIssues.length ? ['', '📐 Problemi volumi:', ...v.volumeIssues.map(iv => `  📐 ${iv}`)] : []),
         ...(v.carbonationIssues.length ? ['', '🫧 Problemi carbonazione:', ...v.carbonationIssues.map(ic => `  🫧 ${ic}`)] : []),
+        '',
+        '💡 Usa recipe_validator con i dati strutturati per la revisione qualitativa LLM.',
       ].join('\n');
 
-      // 4. Build LLM review context
-      const { llmPrompt, outputSchema } = buildLlmReviewContext(recipe, v, style);
-
-      // 5. Final output: deterministic report + LLM prompt + schema
-      const fullOutput = [
-        detReport,
-        '',
-        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-        '📋 LLM REVIEW PROMPT (da inoltrare al modello)',
-        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-        '',
-        llmPrompt,
-        '',
-        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-        '📐 OUTPUT SCHEMA (JSON atteso)',
-        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-        '',
-        '```json',
-        JSON.stringify(outputSchema, null, 2),
-        '```',
-      ].join('\n');
-
-      return Promise.resolve({ output: fullOutput });
+      return Promise.resolve({ output: report });
     } catch (e) {
       return Promise.resolve({
         isError: true,
