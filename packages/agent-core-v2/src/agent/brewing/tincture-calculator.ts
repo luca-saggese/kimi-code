@@ -611,7 +611,8 @@ function doseTincture(input: z.infer<typeof DoseInputSchema>): TincturePlan {
 
     const recoveryIsMeasured = input.recovered_tincture_volume_ml !== undefined;
     const recoveredMl = input.recovered_tincture_volume_ml ?? null;
-    const recoveryFraction = recoveredMl !== null ? recoveredMl / (recoveredMl > 0 ? recoveredMl : 1) : null;
+    // In dose mode we don't know the initial solvent volume, so recovery fraction is unavailable.
+    const recoveryFraction = null;
 
     const warnings = getSafetyWarnings(input.ingredient, input.category);
     if (input.ingredient_sugar_percent && input.ingredient_sugar_percent > 5) {
@@ -621,6 +622,10 @@ function doseTincture(input: z.infer<typeof DoseInputSchema>): TincturePlan {
     if (alcoholContributionAbv > 0.5) {
         warnings.push(`⚠️ Contributo alcolico significativo: +${alcoholContributionAbv}% ABV.`);
     }
+
+    // doseMlActual = actual dose in the sample, doseMlPer100 = scaled to 100 mL
+    const doseMlActual = input.test_dose_ml;
+    const doseMlPer100 = Math.round((input.test_dose_ml * 100 / sampleMl) * 1000) / 1000;
 
     return {
         mode: 'dose',
@@ -637,7 +642,7 @@ function doseTincture(input: z.infer<typeof DoseInputSchema>): TincturePlan {
             doseLowMlPer100ml: 0, doseMidMlPer100ml: 0, doseHighMlPer100ml: 0,
             samples: [
                 { sample: 'A — Controllo', doseMlPer100: 0, doseMlActual: 0 },
-                { sample: 'B — Scelta', doseMlPer100: input.test_dose_ml, doseMlActual: Math.round(input.test_dose_ml * sampleMl / 100 * 1000) / 1000 },
+                { sample: 'B — Scelta', doseMlPer100, doseMlActual },
             ],
             sampleMl,
         },
