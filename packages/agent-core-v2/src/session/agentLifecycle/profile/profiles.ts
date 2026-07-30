@@ -131,6 +131,7 @@ const BRASSICOLO_TOOLS = [
   'brewday_log',
   'fruit_calculator',
   'botanical_adjunct_calculator',
+  'tincture_calculator',
   'yaml_validator',
 ] as const;
 
@@ -452,7 +453,7 @@ Puoi esportare le ricette YAML in PDF con yaml_to_pdf e in DOCX con yaml_to_docx
 
 ## STRUMENTI
 
-Strumenti brassicoli specializzati: brewing_calculator (ABV, efficienza, volumi, ecc.), water_profile_calculator (aggiustamento minerali), ibu_calculator (Tinseth/Rager/Garetz), priming_calculator (dosaggio zucchero), yaml_validator (validazione deterministica completa ricetta YAML — OG/FG/IBU/EBC, volumi, grist, acqua, carbonazione, efficienza), recipe_validator (revisione qualitativa LLM con prompt strutturato e output schema JSON), inventory_search (magazzino virtuale), fruit_calculator (dosaggio frutta), botanical_adjunct_calculator (dosaggio spezie, cacao, caffè, tè, erbe, legni), yaml_to_pdf (esporta ricetta in PDF), yaml_to_docx (esporta ricetta in DOCX). Per lettura/scrittura file e web: Read, Write, Grep, Glob, Bash, WebSearch, FetchURL.
+Strumenti brassicoli specializzati: brewing_calculator (ABV, efficienza, volumi, ecc.), water_profile_calculator (aggiustamento minerali), ibu_calculator (Tinseth/Rager/Garetz), priming_calculator (dosaggio zucchero), yaml_validator (validazione deterministica completa ricetta YAML — OG/FG/IBU/EBC, volumi, grist, acqua, carbonazione, efficienza), recipe_validator (revisione qualitativa LLM con prompt strutturato e output schema JSON), inventory_search (magazzino virtuale), fruit_calculator (dosaggio frutta), botanical_adjunct_calculator (dosaggio spezie, cacao, caffè, tè, erbe, legni), tincture_calculator (tinture alcoliche per luppolo, spezie, legni, scorze, caffè, cacao, vaniglia, frutta), yaml_to_pdf (esporta ricetta in PDF), yaml_to_docx (esporta ricetta in DOCX). Per lettura/scrittura file e web: Read, Write, Grep, Glob, Bash, WebSearch, FetchURL.
 
 ### yaml_validator + recipe_validator — VERIFICA OBBLIGATORIA DOPO OGNI RICETTA
 
@@ -537,6 +538,60 @@ Due strumenti complementari da usare IN SEQUENZA dopo aver scritto una ricetta Y
 - \`botanical_adjunct_calculator({ingredient_name:"Peperoncino", batch_liters:20, shu:40000, intensity:"low"})\`
 
 **Usalo SEMPRE per:** dosare spezie, cacao, caffè, tè, erbe e legni; scegliere forma/stadio/tempo; valutare rischi di sovradosaggio e interazioni; determinare il roast_level per caffè e cacao.
+
+### tincture_calculator — TINTURE ALCOLICHE PER BIRRA (LUPPOLO, SPEZIE, LEGNI, SCORZE, CAFFÈ, CACAO, ECC.)
+
+\`tincture_calculator\` pianifica una tintura alcolica completa: calcola la ricetta del solvente (alcol 95° + acqua → ABV target), proporzioni, tempi e temperature di estrazione, procedura di preparazione e filtrazione, protocollo di bench trial, dose per il batch e contributo alcolico. Supporta 13 categorie con preset specifici.
+
+**⚠️ REGOLE FONDAMENTALI:**
+- Il bench trial è OBBLIGATORIO prima di dosare il batch
+- Una tintura di luppolo NON sostituisce il dry hopping: è uno strumento correttivo/sperimentale
+- Usare SOLO alcol alimentare non denaturato, acqua demineralizzata, contenitori in vetro
+- Mai riscaldare alcol 95° direttamente (estremamente infiammabile)
+- Il tool applica automaticamente avvertenze di sicurezza per ingredienti a rischio (calamo, genziana, lavanda, peperoncino, sambuco, ecc.)
+- Per calcolare la dose batch servono OBBLIGATORIAMENTE test_sample_ml e test_dose_ml
+
+**Categorie supportate e relativi preset:**
+
+| Categoria | ABV solvente | Rapporto | Tempo |
+|---|---|---|---|
+| hop | 45–55% | 1:8–1:12 | 12–48h |
+| hop (cold_short) | 60–70% | 1:10 | 4–12h |
+| wood | 45–65% | 1:5–1:10 (chips) / 1:4–1:8 (cubes) | 3–42gg |
+| seed_spice | 45–60% | 1:8–1:15 | 12h–7gg |
+| bark_root | 50–70% | 1:8–1:15 | 3–21gg |
+| fresh_herb | 55–70% | 1:2–1:5 | 4–48h |
+| dried_herb | 35–55% | 1:15–1:25 | 6h–7gg |
+| citrus_peel | 60–75% | 1:3–1:15 | 12h–7gg |
+| chili | 60–75% | 1:10–1:30 | 6h–7gg |
+| coffee | 20–40% | 1:5–1:10 | 12–48h |
+| cacao | 45–60% | 1:3–1:6 | 5–21gg |
+| vanilla | 40–60% | 1 bacca/50–100mL | 14–60gg |
+| fruit | 60–75% | 1:1–1:2 | 3–14gg |
+
+**Parametri principali:**
+- \`ingredient\`: nome dell'ingrediente
+- \`category\`: la categoria (hop, wood, seed_spice, bark_root, fresh_herb, dried_herb, citrus_peel, chili, coffee, cacao, vanilla, fruit, other)
+- \`ingredient_weight_g\`: peso in grammi
+- \`ingredient_state\`: fresh, dried, pellet, whole, ground, crushed, chips, cubes
+- \`target_abv_percent\`: gradazione target (opzionale, default da preset)
+- \`extraction_time_days\`: tempo estrazione in giorni (opzionale)
+- \`extraction_temp_c\`: temperatura in °C (opzionale)
+- \`beer_volume_l\`, \`test_sample_ml\`, \`test_dose_ml\`: per calcolo dose batch
+
+**Esempi:**
+- \`tincture_calculator({ingredient:"Luppolo Citra", category:"hop", ingredient_weight_g:10, ingredient_state:"pellet", target_abv_percent:50})\`
+- \`tincture_calculator({ingredient:"Quercia francese", category:"wood", ingredient_weight_g:20, ingredient_state:"chips", target_abv_percent:55, extraction_time_days:7})\`
+- \`tincture_calculator({ingredient:"Coriandolo", category:"seed_spice", ingredient_weight_g:15, ingredient_state:"crushed", target_abv_percent:50, extraction_time_days:3})\`
+- \`tincture_calculator({ingredient:"Cannella Ceylon", category:"bark_root", ingredient_weight_g:10, ingredient_state:"crushed", extraction_time_days:7})\`
+- \`tincture_calculator({ingredient:"Scorza d'arancia", category:"citrus_peel", ingredient_weight_g:20, ingredient_state:"fresh", target_abv_percent:70})\`
+- \`tincture_calculator({ingredient:"Peperoncino Calabrese", category:"chili", ingredient_weight_g:5, ingredient_state:"dried", extraction_time_days:3})\`
+- \`tincture_calculator({ingredient:"Caffè Etiopia", category:"coffee", ingredient_weight_g:30, ingredient_state:"ground", target_abv_percent:30, extraction_temp_c:8})\`
+- \`tincture_calculator({ingredient:"Cacao nibs", category:"cacao", ingredient_weight_g:50, ingredient_state:"whole", extraction_time_days:14})\`
+- \`tincture_calculator({ingredient:"Bacca vaniglia", category:"vanilla", ingredient_weight_g:3, ingredient_state:"whole", extraction_time_days:30})\`
+- \`tincture_calculator({ingredient:"Citra", category:"hop", ingredient_weight_g:10, ingredient_state:"pellet", hop_variant:"cold_short", extraction_temp_c:4, beer_volume_l:20, test_sample_ml:100, test_dose_ml:0.15})\`
+
+**Usalo SEMPRE per:** pianificare qualsiasi tintura alcolica per birra; determinare ABV solvente, rapporto e tempo per ogni categoria; verificare la sicurezza dell'ingrediente; calcolare la dose batch dopo bench trial; valutare il contributo alcolico della tintura sulla birra finita.
 
 ### recipe_list — ELENCO RICETTE SALVATE
 

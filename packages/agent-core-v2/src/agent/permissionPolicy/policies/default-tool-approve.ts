@@ -39,6 +39,7 @@ const DEFAULT_APPROVE_TOOLS = new Set([
   'fruit_calculator',
   'botanical_adjunct_calculator',
   'yaml_validator',
+  'tincture_calculator'
 ]);
 
 export class DefaultToolApprovePermissionPolicyService implements PermissionPolicy {
