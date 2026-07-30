@@ -22,6 +22,7 @@ import { z } from 'zod';
 
 import type { BuiltinTool, ToolExecution } from '#/tool/toolContract';
 import { registerTool } from '#/agent/toolRegistry/toolContribution';
+import { toInputJsonSchema } from '#/tool/input-schema';
 
 // ── Categories ───────────────────────────────────────────────────────────────
 
@@ -60,21 +61,28 @@ type IngredientState = (typeof INGREDIENT_STATES)[number];
 
 // ── Preset database ──────────────────────────────────────────────────────────
 
+interface StatePreset {
+    /** g ingredient per mL solvent. */
+    ratio: number;
+    /** Min extraction time in days. */
+    minDays: number;
+    /** Max extraction time in days. */
+    maxDays: number;
+    /** Extraction temp in °C. */
+    tempC: number;
+}
+
 interface CategoryPreset {
     /** Default target ABV range [min, max]. */
     abvRange: [number, number];
     /** Default recommended target ABV. */
     abvRecommended: number;
-    /** Ingredient-to-solvent ratio range [min, max] as g ingredient per mL solvent. */
-    ratioRange: [number, number];
-    /** Recommended ratio. */
-    ratioRecommended: number;
-    /** Recommended extraction time range. */
+    /** State-specific presets (falls back to 'default' key). */
+    states: Record<string, StatePreset>;
+    /** Human-readable time range description. */
     timeRange: string;
-    /** Recommended extraction temperature range. */
+    /** Human-readable temp range description. */
     tempRange: string;
-    /** Extraction temperature in °C (midpoint for calculations). */
-    tempC: number;
     /** Any special notes for the category. */
     notes: string;
     /** Whether the ingredient contains fermentable sugars. */
@@ -83,222 +91,202 @@ interface CategoryPreset {
     label: string;
 }
 
+function resolveState(preset: CategoryPreset, state: IngredientState): StatePreset {
+    if (preset.states[state]) return preset.states[state]!;
+    return preset.states['default']!;
+}
+
 const CATEGORY_PRESETS: Record<string, CategoryPreset> = {
     hop: {
-        abvRange: [45, 55],
-        abvRecommended: 50,
-        ratioRange: [1 / 12, 1 / 8],
-        ratioRecommended: 1 / 10,
-        timeRange: '12–48 ore',
-        tempRange: '4–15 °C',
-        tempC: 10,
-        notes: 'Usare pellet freschi. Minima esposizione all\'aria. Conservare al freddo e al buio. NON sostituisce il dry hopping.',
-        hasFermentables: false,
-        label: 'Luppolo',
+        abvRange: [45, 55], abvRecommended: 50,
+        states: {
+            pellet: { ratio: 1 / 10, minDays: 0.5, maxDays: 2, tempC: 10 },
+            whole: { ratio: 1 / 12, minDays: 0.5, maxDays: 2, tempC: 10 },
+            default: { ratio: 1 / 10, minDays: 0.5, maxDays: 2, tempC: 10 },
+        },
+        timeRange: '12–48 ore', tempRange: '4–15 °C',
+        notes: 'Usare pellet o coni freschi. Minima esposizione all\'aria. Questo preset è un\'euristica sperimentale — NON sostituisce il dry hopping.',
+        hasFermentables: false, label: 'Luppolo',
     },
     hop_cold_short: {
-        abvRange: [60, 70],
-        abvRecommended: 65,
-        ratioRange: [1 / 10, 1 / 10],
-        ratioRecommended: 1 / 10,
-        timeRange: '4–12 ore',
-        tempRange: '0–8 °C',
-        tempC: 4,
-        notes: 'Tecnica sperimentale. Estrazione breve e fredda — più selettiva sugli oli, meno sulle resine. Non garantisce assenza di amaro.',
-        hasFermentables: false,
-        label: 'Luppolo (estrazione breve/fredda)',
+        abvRange: [60, 70], abvRecommended: 65,
+        states: {
+            pellet: { ratio: 1 / 10, minDays: 0.17, maxDays: 0.5, tempC: 4 },
+            whole: { ratio: 1 / 12, minDays: 0.17, maxDays: 0.5, tempC: 4 },
+            default: { ratio: 1 / 10, minDays: 0.17, maxDays: 0.5, tempC: 4 },
+        },
+        timeRange: '4–12 ore', tempRange: '0–8 °C',
+        notes: 'Tecnica sperimentale a contatto breve, pensata per limitare l\'estrazione prolungata di materiale vegetale. Non garantisce minore estrazione di resine, polifenoli o sostanze amare.',
+        hasFermentables: false, label: 'Luppolo (estrazione breve/fredda)',
     },
     wood: {
-        abvRange: [45, 65],
-        abvRecommended: 55,
-        ratioRange: [1 / 10, 1 / 4],
-        ratioRecommended: 1 / 7,
-        timeRange: '3–42 giorni (chips: 3–14, cubes: 14–42)',
-        tempRange: '15–22 °C',
-        tempC: 18,
+        abvRange: [45, 65], abvRecommended: 55,
+        states: {
+            chips: { ratio: 1 / 7, minDays: 3, maxDays: 14, tempC: 18 },
+            cubes: { ratio: 1 / 5, minDays: 14, maxDays: 42, tempC: 18 },
+            default: { ratio: 1 / 7, minDays: 3, maxDays: 14, tempC: 18 },
+        },
+        timeRange: '3–42 giorni (chips: 3–14, cubes: 14–42)', tempRange: '15–22 °C',
         notes: 'Solo legno certificato alimentare. Mai legno da falegnameria. 40-50%: più tannino/legnosità. 55-65%: più vanillina/oak lactones.',
-        hasFermentables: false,
-        label: 'Legno',
+        hasFermentables: false, label: 'Legno',
     },
     seed_spice: {
-        abvRange: [45, 60],
-        abvRecommended: 50,
-        ratioRange: [1 / 15, 1 / 8],
-        ratioRecommended: 1 / 10,
-        timeRange: '12 ore – 7 giorni',
-        tempRange: '15–22 °C',
-        tempC: 18,
+        abvRange: [45, 60], abvRecommended: 50,
+        states: {
+            crushed: { ratio: 1 / 10, minDays: 0.5, maxDays: 7, tempC: 18 },
+            whole: { ratio: 1 / 8, minDays: 1, maxDays: 10, tempC: 18 },
+            ground: { ratio: 1 / 15, minDays: 0.25, maxDays: 2, tempC: 18 },
+            default: { ratio: 1 / 10, minDays: 0.5, maxDays: 7, tempC: 18 },
+        },
+        timeRange: '12 ore – 7 giorni', tempRange: '15–22 °C',
         notes: 'Schiacciare grossolanamente, NON polverizzare. L\'aumento estremo della superficie estrae note resinose/medicinali.',
-        hasFermentables: false,
-        label: 'Spezie-seme',
+        hasFermentables: false, label: 'Spezie-seme',
     },
     bark_root: {
-        abvRange: [50, 70],
-        abvRecommended: 60,
-        ratioRange: [1 / 15, 1 / 8],
-        ratioRecommended: 1 / 10,
-        timeRange: '3–21 giorni',
-        tempRange: '15–22 °C',
-        tempC: 18,
-        notes: 'Cannella di Ceylon preferita alla cassia (più delicata). Genziana: usare 2-5g, dosare a gocce. Liquirizia: aumenta dolcezza percepita.',
-        hasFermentables: false,
-        label: 'Corteccia/radice',
+        abvRange: [50, 70], abvRecommended: 60,
+        states: {
+            crushed: { ratio: 1 / 10, minDays: 3, maxDays: 21, tempC: 18 },
+            whole: { ratio: 1 / 8, minDays: 5, maxDays: 30, tempC: 18 },
+            default: { ratio: 1 / 10, minDays: 3, maxDays: 21, tempC: 18 },
+        },
+        timeRange: '3–21 giorni', tempRange: '15–22 °C',
+        notes: 'Cannella di Ceylon preferita alla cassia (più delicata). Genziana: 2-5g, dosare a gocce. Liquirizia: aumenta dolcezza percepita.',
+        hasFermentables: false, label: 'Corteccia/radice',
     },
     fresh_herb: {
-        abvRange: [55, 70],
-        abvRecommended: 65,
-        ratioRange: [1 / 5, 1 / 2],
-        ratioRecommended: 1 / 3,
-        timeRange: '4–48 ore',
-        tempRange: '4–15 °C',
-        tempC: 10,
-        notes: 'Le erbe fresche contengono molta acqua → la gradazione effettiva finale sarà inferiore. Rosmarino/salvia: possono diventare canforati/medicinali. Controllare già dopo 4–6 ore.',
-        hasFermentables: false,
-        label: 'Erbe fresche',
+        abvRange: [55, 70], abvRecommended: 65,
+        states: {
+            fresh: { ratio: 1 / 3, minDays: 0.17, maxDays: 2, tempC: 10 },
+            default: { ratio: 1 / 3, minDays: 0.17, maxDays: 2, tempC: 10 },
+        },
+        timeRange: '4–48 ore', tempRange: '4–15 °C',
+        notes: 'Le erbe fresche contengono molta acqua → gradazione effettiva inferiore. Rosmarino/salvia: controllare dopo 4–6 ore.',
+        hasFermentables: false, label: 'Erbe fresche',
     },
     dried_herb: {
-        abvRange: [35, 55],
-        abvRecommended: 45,
-        ratioRange: [1 / 25, 1 / 10],
-        ratioRecommended: 1 / 15,
-        timeRange: '6 ore – 7 giorni (fiori delicati: 6–48 ore)',
-        tempRange: '15–22 °C',
-        tempC: 18,
-        notes: 'Lavanda: estremamente facile da sovradosare (può ricordare sapone). Ibisco: usare 25-40% ABV per estrarre colore e acidità. Fiori delicati: 40-50%, rapporto 1:15-1:25.',
-        hasFermentables: false,
-        label: 'Erbe essiccate / fiori',
+        abvRange: [35, 55], abvRecommended: 45,
+        states: {
+            dried: { ratio: 1 / 15, minDays: 0.25, maxDays: 7, tempC: 18 },
+            crushed: { ratio: 1 / 20, minDays: 0.17, maxDays: 2, tempC: 18 },
+            default: { ratio: 1 / 15, minDays: 0.25, maxDays: 7, tempC: 18 },
+        },
+        timeRange: '6 ore – 7 giorni (fiori delicati: 6–48 ore)', tempRange: '15–22 °C',
+        notes: 'Lavanda: estremamente facile da sovradosare (può ricordare sapone). Ibisco: usare 25-40% ABV per colore e acidità.',
+        hasFermentables: false, label: 'Erbe essiccate / fiori',
     },
     citrus_peel: {
-        abvRange: [60, 75],
-        abvRecommended: 70,
-        ratioRange: [1 / 15, 1 / 3],
-        ratioRecommended: 1 / 6,
-        timeRange: '12 ore – 7 giorni',
-        tempRange: '15–22 °C',
-        tempC: 18,
-        notes: 'Solo scorze NON trattate, senza cere. Ridurre al minimo l\'albedo (amaro, pectina, astringenza). Preparare agrumi diversi separatamente.',
-        hasFermentables: false,
-        label: 'Scorze agrumi',
+        abvRange: [60, 75], abvRecommended: 70,
+        states: {
+            fresh: { ratio: 1 / 5, minDays: 0.5, maxDays: 7, tempC: 18 },
+            dried: { ratio: 1 / 12, minDays: 0.5, maxDays: 7, tempC: 18 },
+            default: { ratio: 1 / 6, minDays: 0.5, maxDays: 7, tempC: 18 },
+        },
+        timeRange: '12 ore – 7 giorni', tempRange: '15–22 °C',
+        notes: 'Solo scorze NON trattate, senza cere. Ridurre al minimo l\'albedo (amaro, pectina). Preparare agrumi diversi separatamente.',
+        hasFermentables: false, label: 'Scorze agrumi',
     },
     chili: {
-        abvRange: [60, 75],
-        abvRecommended: 70,
-        ratioRange: [1 / 30, 1 / 10],
-        ratioRecommended: 1 / 20,
-        timeRange: '6 ore – 7 giorni',
-        tempRange: '15–22 °C',
-        tempC: 18,
-        notes: 'Usare guanti. La capsaicina è molto solubile in etanolo. NON assaggiare la tintura pura. Dose iniziale: 1 goccia in 100 mL. Registrare varietà, lotto, peso, placenta, semi.',
-        hasFermentables: false,
-        label: 'Peperoncino',
+        abvRange: [60, 75], abvRecommended: 70,
+        states: {
+            dried: { ratio: 1 / 20, minDays: 0.25, maxDays: 7, tempC: 18 },
+            fresh: { ratio: 1 / 10, minDays: 0.25, maxDays: 7, tempC: 18 },
+            default: { ratio: 1 / 20, minDays: 0.25, maxDays: 7, tempC: 18 },
+        },
+        timeRange: '6 ore – 7 giorni', tempRange: '15–22 °C',
+        notes: 'Usare guanti. Capsaicina molto solubile in etanolo. NON assaggiare la tintura pura. Dose iniziale: 1 goccia in 100 mL.',
+        hasFermentables: false, label: 'Peperoncino',
     },
     coffee: {
-        abvRange: [20, 40],
-        abvRecommended: 30,
-        ratioRange: [1 / 10, 1 / 5],
-        ratioRecommended: 1 / 7,
-        timeRange: '12–48 ore',
-        tempRange: '4–15 °C',
-        tempC: 10,
-        notes: 'Macinatura grossolana. Troppa acqua, tempo lungo o macinatura fine → amaro, astringenza. Il cold brew concentrato con sola acqua dà spesso risultati migliori, ma la tintura idroalcolica ha maggiore stabilità.',
-        hasFermentables: false,
-        label: 'Caffè',
+        abvRange: [20, 40], abvRecommended: 30,
+        states: {
+            ground: { ratio: 1 / 7, minDays: 0.5, maxDays: 2, tempC: 10 },
+            whole: { ratio: 1 / 4, minDays: 1, maxDays: 3, tempC: 10 },
+            default: { ratio: 1 / 7, minDays: 0.5, maxDays: 2, tempC: 10 },
+        },
+        timeRange: '12–48 ore', tempRange: '4–15 °C',
+        notes: 'Macinatura GROSSOLANA (french press), mai fine (espresso). Il cold brew con sola acqua dà spesso risultati migliori, ma la tintura idroalcolica ha più stabilità.',
+        hasFermentables: false, label: 'Caffè',
     },
     cacao: {
-        abvRange: [45, 60],
-        abvRecommended: 50,
-        ratioRange: [1 / 6, 1 / 3],
-        ratioRecommended: 1 / 4,
-        timeRange: '5–21 giorni',
-        tempRange: '15–22 °C',
-        tempC: 18,
+        abvRange: [45, 60], abvRecommended: 50,
+        states: {
+            whole: { ratio: 1 / 4, minDays: 5, maxDays: 21, tempC: 18 },
+            crushed: { ratio: 1 / 4, minDays: 3, maxDays: 14, tempC: 18 },
+            default: { ratio: 1 / 4, minDays: 5, maxDays: 21, tempC: 18 },
+        },
+        timeRange: '5–21 giorni', tempRange: '15–22 °C',
         notes: 'I nibs contengono grassi: la tintura può diventare torbida/oleosa. Filtrare, raffreddare 24-48h, rimuovere strato grasso, rifiltrare su carta.',
-        hasFermentables: false,
-        label: 'Cacao',
+        hasFermentables: false, label: 'Cacao',
     },
     vanilla: {
-        abvRange: [40, 60],
-        abvRecommended: 50,
-        ratioRange: [1 / 100, 1 / 50],
-        ratioRecommended: 1 / 75,
-        timeRange: '14–60 giorni',
-        tempRange: '15–22 °C',
-        tempC: 18,
-        notes: 'Aprire longitudinalmente, raschiare semi, inserire semi + baccello. Agitare periodicamente. La vaniglia evolve lentamente e tollera estrazioni lunghe.',
-        hasFermentables: false,
-        label: 'Vaniglia',
+        abvRange: [40, 60], abvRecommended: 50,
+        states: {
+            whole: { ratio: 1 / 75, minDays: 14, maxDays: 60, tempC: 18 },
+            default: { ratio: 1 / 75, minDays: 14, maxDays: 60, tempC: 18 },
+        },
+        timeRange: '14–60 giorni', tempRange: '15–22 °C',
+        notes: 'Aprire longitudinalmente, raschiare semi, inserire semi + baccello. Il rapporto standard è ~1 baccello ogni 50-100 mL; i grammi indicati sono un\'approssimazione del peso medio del baccello (tipicamente 2-4g).',
+        hasFermentables: false, label: 'Vaniglia',
     },
     fruit: {
-        abvRange: [60, 75],
-        abvRecommended: 70,
-        ratioRange: [1 / 2, 1 / 1],
-        ratioRecommended: 1 / 1.5,
-        timeRange: '3–14 giorni',
-        tempRange: '15–22 °C',
-        tempC: 18,
-        notes: 'La frutta contiene molta acqua → la gradazione finale scenderà. Contiene zuccheri fermentabili. Per molte birre è meglio purea asettica o succo. La tintura ha senso per scorze, frutti di bosco aromatici, ciliegie essiccate, bucce.',
-        hasFermentables: true,
-        label: 'Frutta',
+        abvRange: [60, 75], abvRecommended: 70,
+        states: {
+            fresh: { ratio: 1 / 1.5, minDays: 3, maxDays: 14, tempC: 18 },
+            dried: { ratio: 1 / 4, minDays: 3, maxDays: 14, tempC: 18 },
+            default: { ratio: 1 / 1.5, minDays: 3, maxDays: 14, tempC: 18 },
+        },
+        timeRange: '3–14 giorni', tempRange: '15–22 °C',
+        notes: 'La frutta contiene molta acqua e zuccheri fermentabili. Per molte birre è meglio purea asettica o succo. La tintura ha senso per scorze, frutti di bosco aromatici, ciliegie essiccate, bucce.',
+        hasFermentables: true, label: 'Frutta',
     },
     other: {
-        abvRange: [40, 60],
-        abvRecommended: 50,
-        ratioRange: [1 / 15, 1 / 5],
-        ratioRecommended: 1 / 10,
-        timeRange: '3–14 giorni',
-        tempRange: '15–22 °C',
-        tempC: 18,
-        notes: 'Categoria generica. Usare con cautela: verificare sempre la sicurezza alimentare dell\'ingrediente.',
-        hasFermentables: false,
-        label: 'Altro',
+        abvRange: [40, 60], abvRecommended: 50,
+        states: { default: { ratio: 1 / 10, minDays: 3, maxDays: 14, tempC: 18 } },
+        timeRange: '3–14 giorni', tempRange: '15–22 °C',
+        notes: 'Categoria generica. Verificare sempre la sicurezza alimentare. Una concentrazione alcolica può estrarre composti pericolosi.',
+        hasFermentables: false, label: 'Altro',
     },
 };
 
-// ── Safety warnings ──────────────────────────────────────────────────────────
+// ── Safety matching (exact alias lookup) ─────────────────────────────────────
 
-interface SafetyWarnings {
-    ingredient: string;
+interface SafetyEntry {
+    id: string;
+    aliases: string[];
     warnings: string[];
 }
 
-const SAFETY_WARNINGS: SafetyWarnings[] = [
-    { ingredient: 'calamo', warnings: ['⚠️ Il calamo aromatico (Acorus calamus) contiene β-asarone, potenzialmente cancerogeno. Vietato come alimento in UE e USA. NON USARE.'] },
-    { ingredient: 'genziana', warnings: ['⚠️ Estremamente amara. Usare massimo 2-5g. Dosare a gocce. Non trattare come spezia aromatica normale.'] },
-    { ingredient: 'zenzero', warnings: ['⚠️ Lo zenzero fresco contiene molta acqua e diluisce il solvente. Preferire essiccato per maggiore controllo.'] },
-    { ingredient: 'salvia', warnings: ['⚠️ Può diventare canforata, medicinale, amara rapidamente. Controllare dopo 4-6 ore.'] },
-    { ingredient: 'rosmarino', warnings: ['⚠️ Può diventare canforato, medicinale, amaro rapidamente. Controllare dopo 4-6 ore.'] },
-    { ingredient: 'lavanda', warnings: ['⚠️ Estremamente facile da sovradosare — può ricordare sapone o deodorante. Usare rapporto molto diluito (1:15-1:25).'] },
-    { ingredient: 'peperoncino', warnings: ['⚠️ NON assaggiare la tintura pura. Usare guanti. La capsaicina è estremamente solubile in etanolo.'] },
-    { ingredient: 'sambuco', warnings: ['⚠️ NON usare bacche/semi di sambuco crudi (contengono cianuro). Solo fiori o bacche cotte.'] },
-    { ingredient: 'assenzio', warnings: ['⚠️ L\'assenzio (Artemisia absinthium) contiene tujone, regolamentato in molti paesi. Verificare limiti legali.'] },
-    { ingredient: 'noce moscata', warnings: ['⚠️ La noce moscata contiene miristicina. In dosi elevate (>5g) può causare effetti tossici. Mantenere dosi basse.'] },
-    { ingredient: 'fava tonka', warnings: ['⚠️ La fava tonka contiene cumarina. Vietata come ingrediente alimentare in USA. Limitata in UE (tracce). Valutare legalità.'] },
-    { ingredient: 'ginepro', warnings: ['⚠️ Il ginepro contiene oli essenziali che in grandi quantità possono essere irritanti. Schiacciare leggermente, non polverizzare.'] },
+const SAFETY_DB: SafetyEntry[] = [
+    { id: 'calamo', aliases: ['calamo', 'calamus', 'calamo aromatico', 'acorus calamus', 'sweet flag'], warnings: ['🚫 Il calamo aromatico contiene β-asarone, potenzialmente cancerogeno. Vietato in UE e USA. NON USARE.'] },
+    { id: 'genziana', aliases: ['genziana', 'gentian', 'gentiana', 'gentiana lutea'], warnings: ['⚠️ Estremamente amara. Usare massimo 2-5g. Dosare a gocce.'] },
+    { id: 'salvia', aliases: ['salvia', 'sage', 'salvia officinalis'], warnings: ['⚠️ Può diventare canforata/medicinale rapidamente. Controllare dopo 4-6 ore.'] },
+    { id: 'rosmarino', aliases: ['rosmarino', 'rosemary', 'rosmarinus officinalis'], warnings: ['⚠️ Può diventare canforato/medicinale rapidamente. Controllare dopo 4-6 ore.'] },
+    { id: 'lavanda', aliases: ['lavanda', 'lavender', 'lavandula', 'lavandula angustifolia'], warnings: ['⚠️ Facile sovradosare (sapone/deodorante). Rapporto 1:15-1:25.'] },
+    { id: 'peperoncino', aliases: ['peperoncino', 'chili', 'chilli', 'chile', 'habanero', 'jalapeño', 'jalapeno', 'cayenna', 'cayenne', 'calabrese'], warnings: ['⚠️ NON assaggiare la tintura pura. Usare guanti. Capsaicina molto solubile in etanolo.'] },
+    { id: 'sambuco', aliases: ['sambuco', 'elderberry', 'sambucus', 'elder', 'sambuco nero'], warnings: ['🚫 NON usare bacche/semi crudi (cianuro). Solo fiori o bacche cotte.'] },
+    { id: 'assenzio', aliases: ['assenzio', 'wormwood', 'artemisia absinthium', 'artemisia'], warnings: ['🚫 Contiene tujone, regolamentato. Verificare limiti legali prima dell\'uso.'] },
+    { id: 'noce_moscata', aliases: ['noce moscata', 'nutmeg', 'myristica fragrans'], warnings: ['⚠️ Contiene miristicina. >5g può causare effetti tossici. Mantenere dosi molto basse.'] },
+    { id: 'fava_tonka', aliases: ['fava tonka', 'tonka bean', 'tonka', 'dipteryx odorata'], warnings: ['🚫 Contiene cumarina. Vietata in USA come ingrediente alimentare. Limitata in UE.'] },
+    { id: 'ginepro', aliases: ['ginepro', 'juniper', 'juniperus communis'], warnings: ['⚠️ Oli essenziali irritanti in grandi quantità. Schiacciare leggermente, non polverizzare.'] },
 ];
 
-function getSafetyWarnings(ingredient: string, category: Category): string[] {
-    const nameLower = ingredient.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-    const warnings: string[] = [];
+function normalizeForMatch(text: string): string {
+    return text.normalize('NFD').replace(/\p{Diacritic}/gu, '').trim().toLowerCase();
+}
 
-    for (const sw of SAFETY_WARNINGS) {
-        const swLower = sw.ingredient.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-        if (nameLower.includes(swLower) || swLower.includes(nameLower)) {
-            warnings.push(...sw.warnings);
+function getSafetyWarnings(ingredient: string, category: Category): string[] {
+    const query = normalizeForMatch(ingredient);
+    const warnings: string[] = [];
+    for (const entry of SAFETY_DB) {
+        for (const alias of entry.aliases) {
+            if (normalizeForMatch(alias) === query) {
+                warnings.push(...entry.warnings);
+                break;
+            }
         }
     }
-
-    // Generic safety notes by category
-    if (category === 'wood') {
-        warnings.push('⚠️ Usare SOLO legno certificato per contatto alimentare. Mai legno da falegnameria, trattato, verniciato o non tracciato.');
-    }
-    if (category === 'citrus_peel') {
-        warnings.push('⚠️ Usare SOLO scorze non trattate, senza cere fungicide. Ridurre al minimo l\'albedo bianco.');
-    }
-    if (category === 'other') {
-        warnings.push('⚠️ Categoria generica: verificare che l\'ingrediente sia certificato per uso alimentare. Non usare piante raccolte senza identificazione botanica certa.');
-    }
-
-    // Deduplicate while preserving order
+    if (category === 'wood') warnings.push('⚠️ Solo legno certificato alimentare. Mai legno da falegnameria.');
+    if (category === 'citrus_peel') warnings.push('⚠️ Solo scorze non trattate, senza cere. Ridurre albedo al minimo.');
     return [...new Set(warnings)];
 }
 
@@ -354,24 +342,42 @@ export const TinctureCalculatorInputSchema = z.object({
     test_dose_ml: z.number().positive().optional().describe('Dose scelta nel campione (mL). Da cui calcolare la dose batch.'),
     /** For hops: use the cold/short extraction variant. */
     hop_variant: z.enum(['standard', 'cold_short']).optional().describe('Per luppolo: "standard" (45-55%, 12-48h) o "cold_short" (60-70%, 4-12h).'),
-    /** For fresh herbs: the estimated water content of the herb (g water / 100g fresh). */
-    herb_water_percent: z.number().min(0).max(100).optional().describe('Per erbe fresche: contenuto d\'acqua (g/100g), stima la diluizione del solvente.'),
-    /** For fruit: estimated sugar content for fermentability warning. */
-    fruit_sugar_percent: z.number().min(0).max(100).optional().describe('Per frutta: zuccheri g/100g. Usato per avviso fermentabili.'),
+    /** Water content (g/100g). For fresh herbs ~85-92%, fresh fruit ~80-95%. Estimates solvent dilution. */
+    ingredient_water_percent: z.number().min(0).max(100).optional().describe('Contenuto d\'acqua dell\'ingrediente (g/100g). Stima la diluizione del solvente da parte dell\'ingrediente.'),
+    /** Sugar content for fermentability warning. */
+    ingredient_sugar_percent: z.number().min(0).max(100).optional().describe('Zuccheri nell\'ingrediente (g/100g). Per avviso fermentabili.'),
+    /** Volume of tincture actually recovered after filtration. */
+    recovered_tincture_volume_ml: z.number().positive().optional().describe('Volume di tintura effettivamente recuperato dopo filtrazione (mL). Per calcoli più precisi della dose batch.'),
+    /** For 'other' category: explicit food safety confirmation. */
+    food_safe_confirmed: z.boolean().optional().describe('PER CATEGORIA "other": conferma esplicita che l\'ingrediente è sicuro per uso alimentare. Blocca il calcolo se non confermato.'),
     /** Explicitly set the ingredient-to-solvent ratio (overrides preset). */
     custom_ratio: z.number().positive().optional().describe('Rapporto ingrediente/solvente personalizzato (g/mL). Sovrascrive il preset.'),
     show_details: z.boolean().default(true).describe('Mostra la guida completa e i dettagli.'),
-}).refine((input) => {
-    // Require test parameters if batch dosing is requested
-    if (input.beer_volume_l !== undefined) {
-        if (input.test_sample_ml === undefined || input.test_dose_ml === undefined) {
-            return false;
-        }
+}).superRefine((input, ctx) => {
+    // target_abv must not exceed source
+    if (input.target_abv_percent !== undefined && input.target_abv_percent > input.source_abv_percent) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['target_abv_percent'],
+            message: `La gradazione target (${input.target_abv_percent}%) non può superare quella dell'alcol di partenza (${input.source_abv_percent}%).`,
+        });
     }
-    return true;
-}, {
-    message: 'Per calcolare la dose batch servono test_sample_ml e test_dose_ml (bench trial).',
-    path: ['beer_volume_l'],
+    // Bench trial required for batch dosing
+    if (input.beer_volume_l !== undefined && (input.test_sample_ml === undefined || input.test_dose_ml === undefined)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['beer_volume_l'],
+            message: 'Per calcolare la dose batch servono test_sample_ml e test_dose_ml (bench trial obbligatorio).',
+        });
+    }
+    // 'other' category requires food_safe_confirmed
+    if (input.category === 'other' && !input.food_safe_confirmed) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['food_safe_confirmed'],
+            message: 'Per la categoria "other" devi confermare esplicitamente la sicurezza alimentare (food_safe_confirmed: true). Una concentrazione alcolica può estrarre composti pericolosi.',
+        });
+    }
 });
 
 export type TinctureCalculatorInput = z.infer<typeof TinctureCalculatorInputSchema>;
@@ -397,12 +403,16 @@ export interface TincturePlan {
         doseLowMlPer100ml: number;
         doseMidMlPer100ml: number;
         doseHighMlPer100ml: number;
-        samples: { sample: string; doseMl: number }[];
+        samples: { sample: string; doseMlPer100: number; doseMlActual: number }[];
+        sampleMl: number;
     };
     estimatedBatchDoseMl: number | null;
     alcoholContributionAbv: number | null;
     hasFermentables: boolean;
-    effectiveAbvPercent: number | null;
+    estimatedMinAbvPercent: number | null;
+    estimatedRecoveredMl: number;
+    estimatedRecoveryFraction: number;
+    statePreset: StatePreset;
     warnings: string[];
 }
 
@@ -414,7 +424,7 @@ function compute(input: TinctureCalculatorInput): TincturePlan {
         ? 'hop_cold_short'
         : input.category;
 
-    const preset = CATEGORY_PRESETS[presetKey] ?? CATEGORY_PRESETS.other;
+    const preset = CATEGORY_PRESETS[presetKey] ?? CATEGORY_PRESETS['other'];
     if (!preset) {
         throw new Error(`Categoria "${presetKey}" non trovata nei preset.`);
     }
@@ -422,8 +432,11 @@ function compute(input: TinctureCalculatorInput): TincturePlan {
     // Resolve target ABV
     const targetAbv = input.target_abv_percent ?? preset.abvRecommended;
 
+    // Resolve state-specific preset
+    const statePreset = resolveState(preset, input.ingredient_state);
+
     // Resolve ingredient-to-solvent ratio
-    const ratio = input.custom_ratio ?? preset.ratioRecommended;
+    const ratio = input.custom_ratio ?? statePreset.ratio;
 
     // Resolve solvent volume
     const solventMl = input.solvent_volume_ml ?? solventVolumeFromRatio(input.ingredient_weight_g, ratio);
@@ -431,9 +444,26 @@ function compute(input: TinctureCalculatorInput): TincturePlan {
     // Compute dilution
     const { alcoholMl, waterMl } = computeDilution(input.source_abv_percent, targetAbv, solventMl);
 
+    // ── Effective ABV (water from ingredient) — computed BEFORE batch dosing ──
+    let effectiveAbvPercent: number | null = null;
+    if (input.ingredient_water_percent !== undefined && input.ingredient_water_percent > 0) {
+        const ingredientWaterMl = input.ingredient_weight_g * (input.ingredient_water_percent / 100);
+        const totalVolume = solventMl + ingredientWaterMl;
+        effectiveAbvPercent = totalVolume > 0
+            ? Math.round((alcoholMl * (input.source_abv_percent / 100) / totalVolume) * 100 * 100) / 100
+            : null;
+    }
+
     // Resolve extraction time
     const extractionDays = input.extraction_time_days;
-    const extractionTimeHours = extractionDays ? extractionDays * 24 : undefined;
+    let minHours: number, maxHours: number;
+    if (extractionDays) {
+        minHours = extractionDays * 24;
+        maxHours = extractionDays * 24;
+    } else {
+        minHours = statePreset.minDays * 24;
+        maxHours = statePreset.maxDays * 24;
+    }
     let extractionTime: string;
     if (extractionDays) {
         if (extractionDays < 1) {
@@ -448,7 +478,7 @@ function compute(input: TinctureCalculatorInput): TincturePlan {
     }
 
     // Resolve temperature
-    const tempC = input.extraction_temp_c ?? preset.tempC;
+    const tempC = input.extraction_temp_c ?? statePreset.tempC;
 
     // Build ingredient-to-solvent ratio string
     const actualRatio = input.ingredient_weight_g / solventMl;
@@ -536,83 +566,64 @@ function compute(input: TinctureCalculatorInput): TincturePlan {
     filtration.push('Conservare la tintura in bottiglia di vetro scuro, ben chiusa, al fresco e al buio.');
 
     // ── Bench trial ──
-    // Determine appropriate bench trial range based on category
+    // Dose grid based on category (per 100 mL)
     let doseLow = 0.02;
     let doseMid = 0.10;
     let doseHigh = 0.30;
 
     switch (input.category) {
         case 'chili':
-            doseLow = 0.005;
-            doseMid = 0.02;
-            doseHigh = 0.05;
-            break;
+            doseLow = 0.005; doseMid = 0.02; doseHigh = 0.05; break;
         case 'hop':
-        case 'hop_cold_short':
-            doseLow = 0.05;
-            doseMid = 0.20;
-            doseHigh = 0.40;
-            break;
+            doseLow = 0.05; doseMid = 0.20; doseHigh = 0.40; break;
         case 'wood':
-            doseLow = 0.10;
-            doseMid = 0.50;
-            doseHigh = 1.00;
-            break;
+            doseLow = 0.10; doseMid = 0.50; doseHigh = 1.00; break;
         case 'vanilla':
-            doseLow = 0.10;
-            doseMid = 0.30;
-            doseHigh = 0.50;
-            break;
+            doseLow = 0.10; doseMid = 0.30; doseHigh = 0.50; break;
         case 'seed_spice':
         case 'bark_root':
-            doseLow = 0.02;
-            doseMid = 0.10;
-            doseHigh = 0.30;
-            break;
+            doseLow = 0.02; doseMid = 0.10; doseHigh = 0.30; break;
         case 'citrus_peel':
-            doseLow = 0.02;
-            doseMid = 0.15;
-            doseHigh = 0.30;
-            break;
+            doseLow = 0.02; doseMid = 0.15; doseHigh = 0.30; break;
         case 'coffee':
-            doseLow = 0.05;
-            doseMid = 0.15;
-            doseHigh = 0.30;
-            break;
+            doseLow = 0.05; doseMid = 0.15; doseHigh = 0.30; break;
         case 'cacao':
-            doseLow = 0.10;
-            doseMid = 0.50;
-            doseHigh = 1.00;
-            break;
+            doseLow = 0.10; doseMid = 0.50; doseHigh = 1.00; break;
         case 'fresh_herb':
         case 'dried_herb':
-            doseLow = 0.05;
-            doseMid = 0.20;
-            doseHigh = 0.50;
-            break;
+            doseLow = 0.05; doseMid = 0.20; doseHigh = 0.50; break;
         case 'fruit':
-            doseLow = 0.10;
-            doseMid = 0.50;
-            doseHigh = 1.00;
-            break;
+            doseLow = 0.10; doseMid = 0.50; doseHigh = 1.00; break;
         default:
-            doseLow = 0.05;
-            doseMid = 0.15;
-            doseHigh = 0.40;
+            doseLow = 0.05; doseMid = 0.15; doseHigh = 0.40;
     }
+
+    // Scale bench trial to actual sample volume
+    const sampleMl = input.test_sample_ml ?? 100;
+    const scaleDose = (mlPer100: number) => Math.round(mlPer100 * sampleMl / 100 * 1000) / 1000;
 
     const benchTrial = {
         doseLowMlPer100ml: doseLow,
         doseMidMlPer100ml: doseMid,
         doseHighMlPer100ml: doseHigh,
         samples: [
-            { sample: 'A — Controllo', doseMl: 0 },
-            { sample: 'B — Dose minima', doseMl: doseLow },
-            { sample: 'C — Dose bassa', doseMl: doseMid },
-            { sample: 'D — Dose media', doseMl: doseHigh },
-            { sample: 'E — Dose alta', doseMl: doseHigh * 2 },
+            { sample: 'A — Controllo', doseMlPer100: 0, doseMlActual: 0 },
+            { sample: 'B — Dose minima', doseMlPer100: doseLow, doseMlActual: scaleDose(doseLow) },
+            { sample: 'C — Dose bassa', doseMlPer100: doseMid, doseMlActual: scaleDose(doseMid) },
+            { sample: 'D — Dose media', doseMlPer100: doseHigh, doseMlActual: scaleDose(doseHigh) },
+            { sample: 'E — Dose alta', doseMlPer100: doseHigh * 2, doseMlActual: scaleDose(doseHigh * 2) },
         ],
+        sampleMl,
     };
+
+    // ── Estimated recovered volume ──
+    const estimatedRecoveryFraction = input.category === 'hop' && input.ingredient_state === 'pellet' ? 0.55
+        : input.category === 'coffee' && input.ingredient_state === 'ground' ? 0.50
+        : input.category === 'cacao' ? 0.60
+        : input.category === 'fresh_herb' ? 0.50
+        : input.category === 'fruit' && input.ingredient_state === 'fresh' ? 0.55
+        : 0.75;
+    const recoveredMl = input.recovered_tincture_volume_ml ?? Math.round(solventMl * estimatedRecoveryFraction);
 
     // ── Batch dosing ──
     let estimatedBatchDoseMl: number | null = null;
@@ -622,40 +633,25 @@ function compute(input: TinctureCalculatorInput): TincturePlan {
         const batchVolumeMl = input.beer_volume_l * 1000;
         estimatedBatchDoseMl = Math.round((input.test_dose_ml * batchVolumeMl) / input.test_sample_ml * 100) / 100;
 
-        // ABV contribution: ΔABV ≈ (V_tincture × ABV_tincture) / (V_beer + V_tincture)
+        // Use effective ABV if available, otherwise target
+        const tinctureAbv = effectiveAbvPercent ?? targetAbv;
         const beerMl = input.beer_volume_l * 1000;
-        alcoholContributionAbv = Math.round(((estimatedBatchDoseMl * (targetAbv / 100)) / (beerMl + estimatedBatchDoseMl)) * 100 * 100) / 100;
-    }
-
-    // ── Effective ABV (for fresh herbs / fruit) ──
-    let effectiveAbvPercent: number | null = null;
-    if (input.category === 'fresh_herb' && input.herb_water_percent !== undefined) {
-        const herbWaterMl = input.ingredient_weight_g * (input.herb_water_percent / 100);
-        const totalVolume = solventMl + herbWaterMl;
-        effectiveAbvPercent = Math.round((alcoholMl * (input.source_abv_percent / 100) / totalVolume) * 100 * 100) / 100;
-    } else if (input.category === 'fruit' && input.fruit_sugar_percent !== undefined) {
-        // Fruit water content estimated as 100 - sugar% - fiber% (approx 5% for fiber)
-        const fruitWaterPercent = Math.max(0, 95 - (input.fruit_sugar_percent ?? 0));
-        const fruitWaterMl = input.ingredient_weight_g * (fruitWaterPercent / 100);
-        const totalVolume = solventMl + fruitWaterMl;
-        effectiveAbvPercent = Math.round((alcoholMl * (input.source_abv_percent / 100) / totalVolume) * 100 * 100) / 100;
+        alcoholContributionAbv = Math.round(((estimatedBatchDoseMl * (tinctureAbv / 100)) / (beerMl + estimatedBatchDoseMl)) * 100 * 100) / 100;
     }
 
     // ── Warnings ──
     const warnings = getSafetyWarnings(input.ingredient, input.category);
 
-    if (input.category === 'fruit' || (input.category === 'fresh_herb' && effectiveAbvPercent !== null)) {
-        if (effectiveAbvPercent !== null && effectiveAbvPercent < 20) {
-            warnings.push(`⚠️ La gradazione effettiva dopo l'aggiunta dell'ingrediente scende a ~${effectiveAbvPercent}%. Sotto il 20% c'è rischio di contaminazione microbica. Ridurre la quantità di ingrediente o aumentare l'ABV iniziale.`);
-        }
+    if (effectiveAbvPercent !== null && effectiveAbvPercent < 20) {
+        warnings.push(`⚠️ La gradazione effettiva stimata dopo l'ingrediente scende a ~${effectiveAbvPercent}%. Sotto il 20% c'è rischio di contaminazione microbica.`);
     }
 
-    if (input.category === 'fruit' && input.fruit_sugar_percent && input.fruit_sugar_percent > 5) {
-        warnings.push(`⚠️ La frutta contiene ~${input.fruit_sugar_percent}% zuccheri → possibile rifermentazione se aggiunta prima del packaging. Aggiungere solo a birra stabilizzata o in keg freddo.`);
+    if (input.ingredient_sugar_percent && input.ingredient_sugar_percent > 5) {
+        warnings.push(`⚠️ L'ingrediente contiene ~${input.ingredient_sugar_percent}% zuccheri → possibile rifermentazione. Aggiungere solo a birra stabilizzata o in keg freddo.`);
     }
 
     if (targetAbv > 80) {
-        warnings.push('⚠️ ABV > 80%: estrazione molto aggressiva, profilo potenzialmente resinoso. Non rappresentativo dell\'estrazione in birra.');
+        warnings.push('⚠️ ABV > 80%: estrazione molto aggressiva, profilo potenzialmente resinoso.');
     }
 
     if (input.category === 'hop') {
@@ -663,7 +659,11 @@ function compute(input: TinctureCalculatorInput): TincturePlan {
     }
 
     if (extractionDays && extractionDays > 14 && ['seed_spice', 'fresh_herb', 'citrus_peel', 'chili'].includes(input.category)) {
-        warnings.push('⚠️ Tempo di estrazione lungo (>14gg) per questa categoria: rischio aumento di tannino, amaro, note medicinali o terrose.');
+        warnings.push('⚠️ Tempo di estrazione lungo (>14gg): rischio aumento di tannino, amaro, note medicinali o terrose.');
+    }
+
+    if (input.category === 'other' && !input.food_safe_confirmed) {
+        warnings.push('🚫 Categoria "other" senza conferma di sicurezza alimentare. Una concentrazione alcolica può estrarre composti pericolosi.');
     }
 
     return {
@@ -684,8 +684,11 @@ function compute(input: TinctureCalculatorInput): TincturePlan {
         benchTrial,
         estimatedBatchDoseMl,
         alcoholContributionAbv,
-        hasFermentables: preset.hasFermentables || (input.category === 'fruit' && (input.fruit_sugar_percent ?? 0) > 5),
-        effectiveAbvPercent,
+        hasFermentables: preset.hasFermentables || (input.ingredient_sugar_percent ?? 0) > 5,
+        estimatedMinAbvPercent: effectiveAbvPercent,
+        estimatedRecoveredMl: recoveredMl,
+        estimatedRecoveryFraction,
+        statePreset,
         warnings,
     };
 }
@@ -741,8 +744,8 @@ function formatResults(input: TinctureCalculatorInput): string {
     lines.push('> Versare PRIMA l\'alcol, POI l\'acqua, quindi portare a volume. I volumi acqua–etanolo non sono perfettamente additivi.');
     lines.push('');
 
-    if (plan.effectiveAbvPercent !== null) {
-        lines.push(`> ⚠️ Gradazione effettiva stimata dopo l'aggiunta dell'ingrediente: **~${plan.effectiveAbvPercent}%** (diluizione da acqua dell'ingrediente).`);
+    if (plan.estimatedMinAbvPercent !== null) {
+        lines.push(`> ⚠️ Gradazione effettiva minima stimata dopo l'ingrediente: **~${plan.estimatedMinAbvPercent}%** (diluizione da acqua dell'ingrediente).`);
         lines.push('');
     }
 
@@ -781,17 +784,24 @@ function formatResults(input: TinctureCalculatorInput): string {
     // ── Bench trial ──
     lines.push('## 🧪 Bench Trial (OBBLIGATORIO)');
     lines.push('');
-    lines.push('Preparare 5 campioni da 100 mL di birra finita:');
+    const sampleMl = plan.benchTrial.sampleMl;
+    if (sampleMl !== 100) {
+        lines.push(`Preparare 5 campioni da **${sampleMl} mL** di birra finita:`);
+    } else {
+        lines.push('Preparare 5 campioni da **100 mL** di birra finita:');
+    }
     lines.push('');
-    lines.push('| Campione | Dose (mL/100mL) |');
+    lines.push('| Campione | Dose (mL/campione) |');
     lines.push('|---|---|');
     for (const s of plan.benchTrial.samples) {
-        lines.push(`| ${s.sample} | ${s.doseMl > 0 ? s.doseMl.toFixed(3) : '0'} |`);
+        lines.push(`| ${s.sample} | ${s.doseMlActual > 0 ? s.doseMlActual.toFixed(3) : '0'} |`);
     }
     lines.push('');
     lines.push('Mescolare, attendere 10–30 minuti, assaggiare alla temperatura di servizio.');
-    lines.push(`- Per legno: attendere almeno 15–30 min nel campione prima di giudicare.`);
-    lines.push(`- Per peperoncino: iniziare da 1 goccia e aumentare una goccia alla volta.`);
+    lines.push('- Per legno: attendere almeno 15–30 min nel campione prima di giudicare.');
+    if (input.category === 'chili') {
+        lines.push('- Per peperoncino: iniziare da 1 goccia. Dosi <0.05 mL richiedono micropipetta o diluizione seriale (1 mL tintura + 9 mL solvente → 1:10).');
+    }
     lines.push('');
 
     // ── Batch dose ──
@@ -849,7 +859,7 @@ function formatResults(input: TinctureCalculatorInput): string {
     if (input.show_details) {
         lines.push('## 📝 Note specifiche');
         lines.push('');
-        lines.push(CATEGORY_PRESETS[input.category === 'hop' && input.hop_variant === 'cold_short' ? 'hop_cold_short' : input.category]?.notes ?? CATEGORY_PRESETS.other!.notes);
+        lines.push(CATEGORY_PRESETS[input.category === 'hop' && input.hop_variant === 'cold_short' ? 'hop_cold_short' : input.category]?.notes ?? CATEGORY_PRESETS['other']!.notes);
         lines.push('');
 
         if (input.category === 'hop') {
@@ -874,38 +884,12 @@ function formatResults(input: TinctureCalculatorInput): string {
     lines.push('- [ ] Bench trial completato PRIMA di dosare il batch');
     lines.push('');
 
-    lines.push('---');
-    lines.push('*I preset sono punti di partenza basati su euristiche di estrazione. Varietà, lotto, freschezza e dimensione delle particelle modificano radicalmente il risultato. Il bench trial è sempre obbligatorio.*');
+    lines.push(`*Recupero stimato: ~${Math.round(plan.estimatedRecoveryFraction * 100)}% del solvente (${plan.estimatedRecoveredMl} mL). Misurare il volume effettivo e usare recovered_tincture_volume_ml per calcoli più precisi.*`);
 
     return lines.join('\n');
 }
 
 // ── Tool ─────────────────────────────────────────────────────────────────────
-
-const TINCTURE_CALCULATOR_PARAMETERS: Record<string, unknown> = {
-    type: 'object',
-    properties: {
-        ingredient: { type: 'string', minLength: 1, description: 'Nome dell\'ingrediente. Es: "Luppolo Citra", "Quercia francese media tostatura", "Coriandolo", "Scorza d\'arancia", "Cannella Ceylon".' },
-        category: { type: 'string', enum: CATEGORIES, description: 'Categoria dell\'ingrediente: hop, wood, seed_spice, bark_root, fresh_herb, dried_herb, citrus_peel, chili, coffee, cacao, vanilla, fruit, other.' },
-        ingredient_weight_g: { type: 'number', exclusiveMinimum: 0, description: 'Peso dell\'ingrediente in grammi.' },
-        ingredient_state: { type: 'string', enum: INGREDIENT_STATES, description: 'Stato fisico: fresh, dried, pellet, whole, ground, crushed, chips, cubes.' },
-        source_abv_percent: { type: 'number', minimum: 1, maximum: 100, default: 95, description: 'Gradazione alcol di partenza (95° in Italia, 96° in altri paesi).' },
-        target_abv_percent: { type: 'number', minimum: 1, maximum: 100, description: 'Gradazione target della tintura. Se omesso, si usa il preset della categoria.' },
-        solvent_volume_ml: { type: 'number', exclusiveMinimum: 0, description: 'Volume solvente in mL. Se omesso, si calcola dal rapporto ingrediente/solvente.' },
-        extraction_time_days: { type: 'number', exclusiveMinimum: 0, description: 'Tempo di estrazione in giorni. Se omesso, si usa il preset della categoria.' },
-        extraction_temp_c: { type: 'number', minimum: 0, maximum: 40, description: 'Temperatura di estrazione in °C. Se omesso, si usa il preset.' },
-        beer_volume_l: { type: 'number', exclusiveMinimum: 0, description: 'Volume EFFETTIVO della birra nel fermentatore/keg (NON il volume nominale della ricetta).' },
-        test_sample_ml: { type: 'number', exclusiveMinimum: 0, description: 'Volume del campione per il bench trial (es. 100). Obbligatorio per calcolare la dose batch.' },
-        test_dose_ml: { type: 'number', exclusiveMinimum: 0, description: 'Dose scelta nel campione (mL). Obbligatorio per calcolare la dose batch.' },
-        hop_variant: { type: 'string', enum: ['standard', 'cold_short'], description: 'Solo per luppolo: "standard" (45-55%, 12-48h) o "cold_short" (60-70%, 4-12h, più selettivo).' },
-        herb_water_percent: { type: 'number', minimum: 0, maximum: 100, description: 'Solo per erbe fresche: contenuto d\'acqua (g/100g). Stima la diluizione del solvente.' },
-        fruit_sugar_percent: { type: 'number', minimum: 0, maximum: 100, description: 'Solo per frutta: zuccheri g/100g. Usato per avviso fermentabili.' },
-        custom_ratio: { type: 'number', exclusiveMinimum: 0, description: 'Rapporto ingrediente/solvente personalizzato (g/mL). Sovrascrive il preset. Es. 0.1 = 1:10.' },
-        show_details: { type: 'boolean', default: true },
-    },
-    required: ['ingredient', 'category', 'ingredient_weight_g', 'ingredient_state'],
-    additionalProperties: false,
-};
 
 export class TinctureCalculatorTool implements BuiltinTool<TinctureCalculatorInput> {
     readonly name = 'tincture_calculator' as const;
@@ -922,7 +906,7 @@ export class TinctureCalculatorTool implements BuiltinTool<TinctureCalculatorInp
         '',
         'Categorie supportate: hop, wood, seed_spice, bark_root, fresh_herb, dried_herb, citrus_peel, chili, coffee, cacao, vanilla, fruit, other.',
     ].join('\n');
-    readonly parameters = TINCTURE_CALCULATOR_PARAMETERS;
+    readonly parameters: Record<string, unknown> = toInputJsonSchema(TinctureCalculatorInputSchema);
 
     resolveExecution(rawArgs: TinctureCalculatorInput): ToolExecution {
         const parsed = TinctureCalculatorInputSchema.parse(rawArgs);
