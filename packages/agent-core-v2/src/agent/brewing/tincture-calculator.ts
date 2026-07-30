@@ -59,6 +59,24 @@ const INGREDIENT_STATES = [
 
 type IngredientState = (typeof INGREDIENT_STATES)[number];
 
+// ── Category-state compatibility ─────────────────────────────────────────────
+
+const ALLOWED_STATES: Record<Category, readonly IngredientState[]> = {
+    hop: ['pellet', 'whole'],
+    wood: ['chips', 'cubes'],
+    seed_spice: ['whole', 'crushed', 'ground'],
+    bark_root: ['whole', 'crushed', 'ground'],
+    fresh_herb: ['fresh'],
+    dried_herb: ['dried', 'crushed'],
+    citrus_peel: ['fresh', 'dried'],
+    chili: ['fresh', 'dried', 'crushed'],
+    coffee: ['whole', 'ground'],
+    cacao: ['whole', 'crushed'],
+    vanilla: ['whole'],
+    fruit: ['fresh', 'dried'],
+    other: [...INGREDIENT_STATES],
+} as const;
+
 // ── Preset database ──────────────────────────────────────────────────────────
 
 interface StatePreset {
@@ -221,11 +239,11 @@ const CATEGORY_PRESETS: Record<string, CategoryPreset> = {
     vanilla: {
         abvRange: [40, 60], abvRecommended: 50,
         states: {
-            whole: { ratio: 1 / 75, minDays: 14, maxDays: 60, tempC: 18 },
-            default: { ratio: 1 / 75, minDays: 14, maxDays: 60, tempC: 18 },
+            whole: { ratio: 0.04, minDays: 14, maxDays: 60, tempC: 18 },
+            default: { ratio: 0.04, minDays: 14, maxDays: 60, tempC: 18 },
         },
         timeRange: '14–60 giorni', tempRange: '15–22 °C',
-        notes: 'Aprire longitudinalmente, raschiare semi, inserire semi + baccello. Il rapporto standard è ~1 baccello ogni 50-100 mL; i grammi indicati sono un\'approssimazione del peso medio del baccello (tipicamente 2-4g).',
+        notes: 'Aprire longitudinalmente, raschiare semi, inserire semi + baccello. Il rapporto è calcolato in grammi: ~3g di baccello ogni 75 mL (1:25 g/mL). Per 1 baccello intero (~2-4g), il solvente calcolato sarà circa 50-100 mL.',
         hasFermentables: false, label: 'Vaniglia',
     },
     fruit: {
@@ -352,6 +370,8 @@ export const TinctureCalculatorInputSchema = z.object({
     food_safe_confirmed: z.boolean().optional().describe('PER CATEGORIA "other": conferma esplicita che l\'ingrediente è sicuro per uso alimentare. Blocca il calcolo se non confermato.'),
     /** Explicitly set the ingredient-to-solvent ratio (overrides preset). */
     custom_ratio: z.number().positive().optional().describe('Rapporto ingrediente/solvente personalizzato (g/mL). Sovrascrive il preset.'),
+    /** Workflow mode. */
+    mode: z.enum(['plan', 'dose']).default('plan').describe('Modalità: "plan" progetta la tintura (default). "dose" calcola la dose batch da dati di bench trial reali. In modalità dose, ingredient_weight_g e ingredient_state sono opzionali.'),
     show_details: z.boolean().default(true).describe('Mostra la guida completa e i dettagli.'),
 }).superRefine((input, ctx) => {
     // target_abv must not exceed source
@@ -378,6 +398,26 @@ export const TinctureCalculatorInputSchema = z.object({
             message: 'Per la categoria "other" devi confermare esplicitamente la sicurezza alimentare (food_safe_confirmed: true). Una concentrazione alcolica può estrarre composti pericolosi.',
         });
     }
+    // Category-state compatibility
+    if (!ALLOWED_STATES[input.category].includes(input.ingredient_state)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['ingredient_state'],
+            message: `Lo stato "${input.ingredient_state}" non è compatibile con la categoria "${input.category}". Stati validi: ${ALLOWED_STATES[input.category].join(', ')}.`,
+        });
+    }
+    // custom_ratio and solvent_volume_ml conflict
+    if (input.custom_ratio !== undefined && input.solvent_volume_ml !== undefined) {
+        const expectedMl = input.ingredient_weight_g / input.custom_ratio;
+        const deviation = Math.abs(expectedMl - input.solvent_volume_ml) / expectedMl;
+        if (deviation > 0.05) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['solvent_volume_ml'],
+                message: `solvent_volume_ml (${input.solvent_volume_ml} mL) e custom_ratio (${input.custom_ratio}) sono incoerenti: il rapporto richiederebbe ${Math.round(expectedMl)} mL. Fornisci uno solo dei due oppure valori equivalenti.`,
+            });
+        }
+    }
 });
 
 export type TinctureCalculatorInput = z.infer<typeof TinctureCalculatorInputSchema>;
@@ -385,6 +425,7 @@ export type TinctureCalculatorInput = z.infer<typeof TinctureCalculatorInputSche
 // ── Output type ──────────────────────────────────────────────────────────────
 
 export interface TincturePlan {
+    mode: 'plan' | 'dose';
     ingredient: string;
     categoryLabel: string;
     category: Category;
@@ -409,9 +450,11 @@ export interface TincturePlan {
     estimatedBatchDoseMl: number | null;
     alcoholContributionAbv: number | null;
     hasFermentables: boolean;
-    estimatedMinAbvPercent: number | null;
-    estimatedRecoveredMl: number;
-    estimatedRecoveryFraction: number;
+    /** Estimated ABV of the tincture after ingredient dilution (simplified model). */
+    estimatedTinctureAbvPercent: number | null;
+    recoveredMl: number;
+    recoveryFraction: number;
+    recoveryIsMeasured: boolean;
     statePreset: StatePreset;
     warnings: string[];
 }
@@ -616,14 +659,19 @@ function compute(input: TinctureCalculatorInput): TincturePlan {
         sampleMl,
     };
 
-    // ── Estimated recovered volume ──
-    const estimatedRecoveryFraction = input.category === 'hop' && input.ingredient_state === 'pellet' ? 0.55
+    // ── Recovered volume ──
+    const defaultRecoveryFraction =
+        input.category === 'hop' && input.ingredient_state === 'pellet' ? 0.55
         : input.category === 'coffee' && input.ingredient_state === 'ground' ? 0.50
         : input.category === 'cacao' ? 0.60
         : input.category === 'fresh_herb' ? 0.50
         : input.category === 'fruit' && input.ingredient_state === 'fresh' ? 0.55
         : 0.75;
-    const recoveredMl = input.recovered_tincture_volume_ml ?? Math.round(solventMl * estimatedRecoveryFraction);
+    const recoveryIsMeasured = input.recovered_tincture_volume_ml !== undefined;
+    const recoveredMl = recoveryIsMeasured
+        ? input.recovered_tincture_volume_ml!
+        : Math.round(solventMl * defaultRecoveryFraction);
+    const recoveryFraction = recoveredMl / solventMl;
 
     // ── Batch dosing ──
     let estimatedBatchDoseMl: number | null = null;
@@ -642,8 +690,21 @@ function compute(input: TinctureCalculatorInput): TincturePlan {
     // ── Warnings ──
     const warnings = getSafetyWarnings(input.ingredient, input.category);
 
+    // Out-of-preset ABV
+    if (input.target_abv_percent !== undefined && (targetAbv < preset.abvRange[0] || targetAbv > preset.abvRange[1])) {
+        warnings.push(`⚠️ ABV target ${targetAbv}% fuori dal preset consigliato (${preset.abvRange[0]}–${preset.abvRange[1]}%).`);
+    }
+    // Out-of-preset extraction time
+    if (extractionDays !== undefined && (extractionDays < statePreset.minDays || extractionDays > statePreset.maxDays)) {
+        warnings.push(`⚠️ Tempo scelto (${extractionDays}gg) fuori dal range consigliato per ${input.category}/${input.ingredient_state} (${statePreset.minDays}–${statePreset.maxDays}gg).`);
+    }
+    // Out-of-preset temperature
+    if (input.extraction_temp_c !== undefined && input.extraction_temp_c !== statePreset.tempC) {
+        warnings.push(`⚠️ Temperatura scelta (${input.extraction_temp_c}°C) diversa dal preset consigliato (${statePreset.tempC}°C).`);
+    }
+
     if (effectiveAbvPercent !== null && effectiveAbvPercent < 20) {
-        warnings.push(`⚠️ La gradazione effettiva stimata dopo l'ingrediente scende a ~${effectiveAbvPercent}%. Sotto il 20% c'è rischio di contaminazione microbica.`);
+        warnings.push(`⚠️ L'ABV stimata della tintura scende a ~${effectiveAbvPercent}%. Sotto il 20% c'è rischio di contaminazione microbica.`);
     }
 
     if (input.ingredient_sugar_percent && input.ingredient_sugar_percent > 5) {
@@ -667,6 +728,7 @@ function compute(input: TinctureCalculatorInput): TincturePlan {
     }
 
     return {
+        mode: input.mode ?? 'plan',
         ingredient: input.ingredient,
         categoryLabel: preset.label,
         category: input.category,
@@ -685,9 +747,10 @@ function compute(input: TinctureCalculatorInput): TincturePlan {
         estimatedBatchDoseMl,
         alcoholContributionAbv,
         hasFermentables: preset.hasFermentables || (input.ingredient_sugar_percent ?? 0) > 5,
-        estimatedMinAbvPercent: effectiveAbvPercent,
-        estimatedRecoveredMl: recoveredMl,
-        estimatedRecoveryFraction,
+        estimatedTinctureAbvPercent: effectiveAbvPercent,
+        recoveredMl,
+        recoveryFraction,
+        recoveryIsMeasured,
         statePreset,
         warnings,
     };
@@ -744,8 +807,8 @@ function formatResults(input: TinctureCalculatorInput): string {
     lines.push('> Versare PRIMA l\'alcol, POI l\'acqua, quindi portare a volume. I volumi acqua–etanolo non sono perfettamente additivi.');
     lines.push('');
 
-    if (plan.estimatedMinAbvPercent !== null) {
-        lines.push(`> ⚠️ Gradazione effettiva minima stimata dopo l'ingrediente: **~${plan.estimatedMinAbvPercent}%** (diluizione da acqua dell'ingrediente).`);
+    if (plan.estimatedTinctureAbvPercent !== null) {
+        lines.push(`> ⚠️ ABV stimata della tintura dopo l'ingrediente: **~${plan.estimatedTinctureAbvPercent}%** (diluizione da acqua dell'ingrediente — stima semplificata, non sostituisce una misura alcolometrica).`);
         lines.push('');
     }
 
@@ -884,7 +947,12 @@ function formatResults(input: TinctureCalculatorInput): string {
     lines.push('- [ ] Bench trial completato PRIMA di dosare il batch');
     lines.push('');
 
-    lines.push(`*Recupero stimato: ~${Math.round(plan.estimatedRecoveryFraction * 100)}% del solvente (${plan.estimatedRecoveredMl} mL). Misurare il volume effettivo e usare recovered_tincture_volume_ml per calcoli più precisi.*`);
+    lines.push('');
+    if (plan.recoveryIsMeasured) {
+        lines.push(`*Volume recuperato misurato: **${plan.recoveredMl} mL** (${Math.round(plan.recoveryFraction * 100)}% del solvente).*`);
+    } else {
+        lines.push(`*Volume recuperato stimato: ~**${plan.recoveredMl} mL** (${Math.round(plan.recoveryFraction * 100)}% del solvente). Misurare il volume effettivo e usare recovered_tincture_volume_ml per calcoli più precisi.*`);
+    }
 
     return lines.join('\n');
 }
