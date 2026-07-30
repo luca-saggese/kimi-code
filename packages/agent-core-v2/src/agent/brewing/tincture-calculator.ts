@@ -345,80 +345,59 @@ function solventVolumeFromRatio(ingredientWeightG: number, ratio: number): numbe
 
 // ── Input schema ─────────────────────────────────────────────────────────────
 
-export const TinctureCalculatorInputSchema = z.object({
+const PlanInputSchema = z.object({
+    mode: z.literal('plan').default('plan'),
     ingredient: z.string().trim().min(1).describe('Nome dell\'ingrediente (es. "Luppolo Citra", "Quercia francese", "Coriandolo").'),
     category: z.enum(CATEGORIES).describe('Categoria dell\'ingrediente. Determina i preset di estrazione.'),
     ingredient_weight_g: z.number().positive().describe('Peso dell\'ingrediente in grammi.'),
-    ingredient_state: z.enum(INGREDIENT_STATES).describe('Stato fisico dell\'ingrediente (fresh, dried, pellet, whole, ground, crushed, chips, cubes).'),
+    ingredient_state: z.enum(INGREDIENT_STATES).describe('Stato fisico dell\'ingrediente.'),
     source_abv_percent: z.number().min(1).max(100).default(95).describe('Gradazione dell\'alcol di partenza (95° in Italia).'),
     target_abv_percent: z.number().min(1).max(100).optional().describe('Gradazione target della tintura. Se omesso, usa il preset della categoria.'),
     solvent_volume_ml: z.number().positive().optional().describe('Volume di solvente in mL. Se omesso, calcolato dal rapporto ingrediente/solvente.'),
-    extraction_time_days: z.number().positive().optional().describe('Tempo di estrazione in giorni. Se omesso, usa il preset della categoria.'),
-    extraction_temp_c: z.number().min(0).max(40).optional().describe('Temperatura di estrazione in °C. Se omesso, usa il preset della categoria.'),
-    beer_volume_l: z.number().positive().optional().describe('Volume effettivo della birra nel fermentatore/keg (L).'),
-    test_sample_ml: z.number().positive().optional().describe('Volume campione per bench trial (es. 100 mL).'),
-    test_dose_ml: z.number().positive().optional().describe('Dose scelta nel campione (mL). Da cui calcolare la dose batch.'),
-    /** For hops: use the cold/short extraction variant. */
-    hop_variant: z.enum(['standard', 'cold_short']).optional().describe('Per luppolo: "standard" (45-55%, 12-48h) o "cold_short" (60-70%, 4-12h).'),
-    /** Water content (g/100g). For fresh herbs ~85-92%, fresh fruit ~80-95%. Estimates solvent dilution. */
-    ingredient_water_percent: z.number().min(0).max(100).optional().describe('Contenuto d\'acqua dell\'ingrediente (g/100g). Stima la diluizione del solvente da parte dell\'ingrediente.'),
-    /** Sugar content for fermentability warning. */
-    ingredient_sugar_percent: z.number().min(0).max(100).optional().describe('Zuccheri nell\'ingrediente (g/100g). Per avviso fermentabili.'),
-    /** Volume of tincture actually recovered after filtration. */
-    recovered_tincture_volume_ml: z.number().positive().optional().describe('Volume di tintura effettivamente recuperato dopo filtrazione (mL). Per calcoli più precisi della dose batch.'),
-    /** For 'other' category: explicit food safety confirmation. */
-    food_safe_confirmed: z.boolean().optional().describe('PER CATEGORIA "other": conferma esplicita che l\'ingrediente è sicuro per uso alimentare. Blocca il calcolo se non confermato.'),
-    /** Explicitly set the ingredient-to-solvent ratio (overrides preset). */
-    custom_ratio: z.number().positive().optional().describe('Rapporto ingrediente/solvente personalizzato (g/mL). Sovrascrive il preset.'),
-    /** Workflow mode. */
-    mode: z.enum(['plan', 'dose']).default('plan').describe('Modalità: "plan" progetta la tintura (default). "dose" calcola la dose batch da dati di bench trial reali. In modalità dose, ingredient_weight_g e ingredient_state sono opzionali.'),
-    show_details: z.boolean().default(true).describe('Mostra la guida completa e i dettagli.'),
+    extraction_time_days: z.number().positive().optional().describe('Tempo di estrazione in giorni. Se omesso, usa il preset.'),
+    extraction_temp_c: z.number().min(0).max(40).optional().describe('Temperatura di estrazione in °C. Se omesso, usa il preset.'),
+    hop_variant: z.enum(['standard', 'cold_short']).optional().describe('Per luppolo: "standard" o "cold_short".'),
+    ingredient_water_percent: z.number().min(0).max(100).optional().describe('Contenuto d\'acqua dell\'ingrediente (g/100g).'),
+    ingredient_sugar_percent: z.number().min(0).max(100).optional().describe('Zuccheri nell\'ingrediente (g/100g).'),
+    food_safe_confirmed: z.boolean().optional().describe('OBBLIGATORIO per categoria "other".'),
+    custom_ratio: z.number().positive().optional().describe('Rapporto personalizzato g/mL. NON usare insieme a solvent_volume_ml.'),
+    show_details: z.boolean().default(true).describe('Mostra la guida completa.'),
 }).superRefine((input, ctx) => {
-    // target_abv must not exceed source
     if (input.target_abv_percent !== undefined && input.target_abv_percent > input.source_abv_percent) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['target_abv_percent'],
-            message: `La gradazione target (${input.target_abv_percent}%) non può superare quella dell'alcol di partenza (${input.source_abv_percent}%).`,
-        });
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['target_abv_percent'], message: `La gradazione target (${input.target_abv_percent}%) non può superare quella di partenza (${input.source_abv_percent}%).` });
     }
-    // Bench trial required for batch dosing
-    if (input.beer_volume_l !== undefined && (input.test_sample_ml === undefined || input.test_dose_ml === undefined)) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['beer_volume_l'],
-            message: 'Per calcolare la dose batch servono test_sample_ml e test_dose_ml (bench trial obbligatorio).',
-        });
-    }
-    // 'other' category requires food_safe_confirmed
     if (input.category === 'other' && !input.food_safe_confirmed) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['food_safe_confirmed'],
-            message: 'Per la categoria "other" devi confermare esplicitamente la sicurezza alimentare (food_safe_confirmed: true). Una concentrazione alcolica può estrarre composti pericolosi.',
-        });
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['food_safe_confirmed'], message: 'Categoria "other" richiede food_safe_confirmed: true.' });
     }
-    // Category-state compatibility
     if (!ALLOWED_STATES[input.category].includes(input.ingredient_state)) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['ingredient_state'],
-            message: `Lo stato "${input.ingredient_state}" non è compatibile con la categoria "${input.category}". Stati validi: ${ALLOWED_STATES[input.category].join(', ')}.`,
-        });
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['ingredient_state'], message: `Lo stato "${input.ingredient_state}" non è compatibile con "${input.category}". Stati validi: ${ALLOWED_STATES[input.category].join(', ')}.` });
     }
-    // custom_ratio and solvent_volume_ml conflict
     if (input.custom_ratio !== undefined && input.solvent_volume_ml !== undefined) {
         const expectedMl = input.ingredient_weight_g / input.custom_ratio;
         const deviation = Math.abs(expectedMl - input.solvent_volume_ml) / expectedMl;
         if (deviation > 0.05) {
-            ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                path: ['solvent_volume_ml'],
-                message: `solvent_volume_ml (${input.solvent_volume_ml} mL) e custom_ratio (${input.custom_ratio}) sono incoerenti: il rapporto richiederebbe ${Math.round(expectedMl)} mL. Fornisci uno solo dei due oppure valori equivalenti.`,
-            });
+            ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['solvent_volume_ml'], message: `solvent_volume_ml (${input.solvent_volume_ml} mL) e custom_ratio incoerenti: il rapporto richiederebbe ~${Math.round(expectedMl)} mL.` });
         }
     }
 });
+
+const DoseInputSchema = z.object({
+    mode: z.literal('dose'),
+    ingredient: z.string().trim().min(1).describe('Nome dell\'ingrediente.'),
+    category: z.enum(CATEGORIES).describe('Categoria.'),
+    beer_volume_l: z.number().positive().describe('Volume EFFETTIVO della birra nel fermentatore/keg (L).'),
+    test_sample_ml: z.number().positive().describe('Volume campione per bench trial (es. 100 mL).'),
+    test_dose_ml: z.number().positive().describe('Dose scelta nel campione (mL).'),
+    recovered_tincture_volume_ml: z.number().positive().optional().describe('Volume di tintura realmente recuperato dopo filtrazione (mL).'),
+    tincture_abv_percent: z.number().min(0).max(100).optional().describe('ABV reale o stimata della tintura (se omesso, default 50%).'),
+    ingredient_sugar_percent: z.number().min(0).max(100).optional().describe('Zuccheri nell\'ingrediente (g/100g). Per avviso fermentabili.'),
+    show_details: z.boolean().default(true),
+});
+
+export const TinctureCalculatorInputSchema = z.discriminatedUnion('mode', [
+    PlanInputSchema,
+    DoseInputSchema,
+]);
 
 export type TinctureCalculatorInput = z.infer<typeof TinctureCalculatorInputSchema>;
 
@@ -427,9 +406,10 @@ export type TinctureCalculatorInput = z.infer<typeof TinctureCalculatorInputSche
 export interface TincturePlan {
     mode: 'plan' | 'dose';
     ingredient: string;
-    categoryLabel: string;
     category: Category;
-    targetAbvPercent: number;
+    categoryLabel: string;
+    /** For plan: target ABV. For dose: explicit or default. */
+    tinctureAbvPercent: number;
     alcohol95Ml: number;
     waterMl: number;
     solventVolumeMl: number;
@@ -437,6 +417,8 @@ export interface TincturePlan {
     ingredientToSolventRatio: string;
     extractionTime: string;
     extractionTempC: number;
+    extractionMinHours: number;
+    extractionMaxHours: number;
     preparation: string[];
     agitation: string;
     filtration: string[];
@@ -450,326 +432,231 @@ export interface TincturePlan {
     estimatedBatchDoseMl: number | null;
     alcoholContributionAbv: number | null;
     hasFermentables: boolean;
-    /** Estimated ABV of the tincture after ingredient dilution (simplified model). */
-    estimatedTinctureAbvPercent: number | null;
-    recoveredMl: number;
-    recoveryFraction: number;
+    recoveredMl: number | null;
+    recoveryFraction: number | null;
     recoveryIsMeasured: boolean;
-    statePreset: StatePreset;
     warnings: string[];
 }
 
 // ── Compute ──────────────────────────────────────────────────────────────────
 
-function compute(input: TinctureCalculatorInput): TincturePlan {
-    // Resolve category preset key
+function planTincture(input: z.infer<typeof PlanInputSchema>): TincturePlan {
     const presetKey = input.category === 'hop' && input.hop_variant === 'cold_short'
         ? 'hop_cold_short'
         : input.category;
 
     const preset = CATEGORY_PRESETS[presetKey] ?? CATEGORY_PRESETS['other'];
-    if (!preset) {
-        throw new Error(`Categoria "${presetKey}" non trovata nei preset.`);
-    }
+    if (!preset) throw new Error(`Categoria "${presetKey}" non trovata.`);
 
-    // Resolve target ABV
     const targetAbv = input.target_abv_percent ?? preset.abvRecommended;
-
-    // Resolve state-specific preset
     const statePreset = resolveState(preset, input.ingredient_state);
-
-    // Resolve ingredient-to-solvent ratio
     const ratio = input.custom_ratio ?? statePreset.ratio;
-
-    // Resolve solvent volume
     const solventMl = input.solvent_volume_ml ?? solventVolumeFromRatio(input.ingredient_weight_g, ratio);
-
-    // Compute dilution
     const { alcoholMl, waterMl } = computeDilution(input.source_abv_percent, targetAbv, solventMl);
 
-    // ── Effective ABV (water from ingredient) — computed BEFORE batch dosing ──
+    // Effective ABV
     let effectiveAbvPercent: number | null = null;
     if (input.ingredient_water_percent !== undefined && input.ingredient_water_percent > 0) {
-        const ingredientWaterMl = input.ingredient_weight_g * (input.ingredient_water_percent / 100);
-        const totalVolume = solventMl + ingredientWaterMl;
-        effectiveAbvPercent = totalVolume > 0
-            ? Math.round((alcoholMl * (input.source_abv_percent / 100) / totalVolume) * 100 * 100) / 100
-            : null;
+        const waterMl2 = input.ingredient_weight_g * (input.ingredient_water_percent / 100);
+        const tv = solventMl + waterMl2;
+        effectiveAbvPercent = tv > 0 ? Math.round((alcoholMl * (input.source_abv_percent / 100) / tv) * 100 * 100) / 100 : null;
     }
 
-    // Resolve extraction time
+    // Extraction time
     const extractionDays = input.extraction_time_days;
-    let minHours: number, maxHours: number;
-    if (extractionDays) {
-        minHours = extractionDays * 24;
-        maxHours = extractionDays * 24;
-    } else {
-        minHours = statePreset.minDays * 24;
-        maxHours = statePreset.maxDays * 24;
-    }
-    let extractionTime: string;
-    if (extractionDays) {
-        if (extractionDays < 1) {
-            extractionTime = `${Math.round(extractionDays * 24)} ore`;
-        } else if (extractionDays < 14) {
-            extractionTime = `${extractionDays} giorni`;
-        } else {
-            extractionTime = `${extractionDays} giorni (${Math.round(extractionDays / 7)} settimane)`;
-        }
-    } else {
-        extractionTime = preset.timeRange;
-    }
+    const minHours = extractionDays ? extractionDays * 24 : statePreset.minDays * 24;
+    const maxHours = extractionDays ? extractionDays * 24 : statePreset.maxDays * 24;
+    const extractionTime = extractionDays
+        ? (extractionDays < 1 ? `${Math.round(extractionDays * 24)} ore`
+            : extractionDays < 14 ? `${extractionDays} giorni`
+                : `${extractionDays} giorni (${Math.round(extractionDays / 7)} settimane)`)
+        : preset.timeRange;
 
-    // Resolve temperature
     const tempC = input.extraction_temp_c ?? statePreset.tempC;
-
-    // Build ingredient-to-solvent ratio string
     const actualRatio = input.ingredient_weight_g / solventMl;
     const ratioLabel = `1:${Math.round(1 / actualRatio)} (${input.ingredient_weight_g}g / ${solventMl}mL → ${(actualRatio * 100).toFixed(1)} g/100mL)`;
 
-    // ── Preparation steps ──
-    const preparation: string[] = [
-        `Pesare ${input.ingredient_weight_g}g di ${input.ingredient} (${preset.label}).`,
-    ];
-
-    // State-specific prep
+    // Preparation
+    const preparation: string[] = [`Pesare ${input.ingredient_weight_g}g di ${input.ingredient} (${preset.label}).`];
     switch (input.ingredient_state) {
-        case 'fresh':
-            preparation.push('Lavare solo se necessario, asciugare perfettamente.');
-            preparation.push('Eliminare parti danneggiate.');
-            break;
-        case 'dried':
-            preparation.push('NON polverizzare: schiacciare o spezzare solo quanto necessario.');
-            break;
-        case 'pellet':
-            preparation.push('Non macinare ulteriormente i pellet.');
-            break;
-        case 'whole':
-            preparation.push('Spezzare o schiacciare leggermente per aumentare la superficie.');
-            break;
-        case 'ground':
-            preparation.push('Usare macinatura grossolana. Evitare polveri fini (sovraestrazione).');
-            break;
-        case 'crushed':
-            preparation.push('Schiacciatura grossolana — sufficiente per superficie senza polveri.');
-            break;
-        case 'chips':
-            preparation.push('Non serve ulteriore preparazione. I chips hanno già superficie adeguata.');
-            break;
-        case 'cubes':
-            preparation.push('Non serve ulteriore preparazione. I cubes estraggono più lentamente dei chips.');
-            break;
+        case 'fresh': preparation.push('Lavare solo se necessario, asciugare perfettamente.', 'Eliminare parti danneggiate.'); break;
+        case 'dried': preparation.push('NON polverizzare: schiacciare o spezzare solo quanto necessario.'); break;
+        case 'pellet': preparation.push('Non macinare ulteriormente i pellet.'); break;
+        case 'whole': preparation.push('Spezzare o schiacciare leggermente per aumentare la superficie.'); break;
+        case 'ground': preparation.push('Usare macinatura grossolana. Evitare polveri fini.'); break;
+        case 'crushed': preparation.push('Schiacciatura grossolana — sufficiente per superficie senza polveri.'); break;
+        case 'chips': preparation.push('Non serve ulteriore preparazione.'); break;
+        case 'cubes': preparation.push('Non serve ulteriore preparazione. I cubes estraggono più lentamente dei chips.'); break;
     }
-
-    // Category-specific prep
     switch (input.category) {
-        case 'vanilla':
-            preparation.push('Aprire il baccello longitudinalmente, raschiare i semi con la lama.');
-            preparation.push('Inserire sia i semi che il baccello nel solvente.');
-            break;
-        case 'citrus_peel':
-            preparation.push('Rimuovere il più possibile l\'albedo bianco (amaro, pectina).');
-            preparation.push('Usare solo la scorza colorata (zest).');
-            break;
-        case 'chili':
-            preparation.push('⚠️ Indossare guanti. Rimuovere parte della placenta per ridurre piccantezza.');
-            preparation.push('Preparare varietà differenti in contenitori separati.');
-            break;
-        case 'coffee':
-            preparation.push('Usare macinatura GROSSOLANA (french press). Mai fine (espresso).');
-            break;
-        case 'cacao':
-            preparation.push('Se i nibs non sono tostati, tostarli leggermente prima (150°C × 10 min).');
-            break;
-        case 'fresh_herb':
-            preparation.push('Non triturare finemente. Lasciare le foglie intere o leggermente spezzate.');
-            break;
+        case 'vanilla': preparation.push('Aprire longitudinalmente, raschiare semi, inserire semi + baccello.'); break;
+        case 'citrus_peel': preparation.push('Rimuovere l\'albedo bianco. Usare solo la scorza colorata.'); break;
+        case 'chili': preparation.push('⚠️ Guanti. Rimuovere parte della placenta. Preparare varietà separate.'); break;
+        case 'coffee': preparation.push('Macinatura GROSSOLANA (french press). Mai fine (espresso).'); break;
+        case 'cacao': preparation.push('Se non tostati, tostare i nibs (150°C × 10 min).'); break;
+        case 'fresh_herb': preparation.push('Non triturare finemente. Foglie intere o spezzate.'); break;
     }
+    preparation.push(
+        `Preparare solvente: ${alcoholMl} mL alcol ${input.source_abv_percent}° + ${waterMl} mL acqua → ${solventMl} mL al ${targetAbv}%.`,
+        'Versare PRIMA l\'alcol, POI l\'acqua (volumi non additivi).',
+        'Usare ESCLUSIVAMENTE alcol alimentare non denaturato e acqua demineralizzata.',
+        'Inserire ingrediente e solvente in VETRO sanificato. Chiudere ermeticamente.',
+        `Conservare al buio a ${tempC}°C circa.`,
+    );
 
-    // Solvent prep
-    preparation.push(`Preparare il solvente: ${alcoholMl} mL di alcol a ${input.source_abv_percent}° + ${waterMl} mL di acqua demineralizzata → ${solventMl} mL al ${targetAbv}%.`);
-    preparation.push('Versare PRIMA l\'alcol, POI l\'acqua, quindi portare a volume finale (i volumi non sono additivi).');
-    preparation.push('Usare ESCLUSIVAMENTE alcol alimentare non denaturato e acqua demineralizzata/osmotizzata/bollita.');
-    preparation.push('Inserire ingrediente e solvente in un contenitore di VETRO sanificato.');
-    preparation.push('Chiudere ermeticamente con tappo resistente all\'alcol.');
-    preparation.push(`Conservare al buio a ${tempC}°C circa.`);
+    const agitation = input.category === 'hop'
+        ? 'Agitazione MINIMA (rischio ossidazione). Una volta al giorno, delicatamente.'
+        : 'Agitare delicatamente una volta al giorno.';
 
-    // Agitation
-    const agitation = 'Agitare delicatamente una volta al giorno. Per luppolo: agitazione minima (rischio ossidazione).';
-
-    // Filtration
     const filtration: string[] = [
         'Filtrare grossolanamente con colino fine a maglia inox.',
         'Lasciare sedimentare 12–48 ore in frigorifero.',
     ];
-    if (input.category === 'cacao') {
-        filtration.push('Rimuovere lo strato grasso superficiale dopo raffreddamento.');
-    }
-    filtration.push('Filtrare nuovamente con carta (filtro da caffè) o filtro a membrana fine.');
-    filtration.push('Conservare la tintura in bottiglia di vetro scuro, ben chiusa, al fresco e al buio.');
+    if (input.category === 'cacao') filtration.push('Rimuovere strato grasso superficiale dopo raffreddamento.');
+    filtration.push('Filtrare con carta (filtro da caffè) o membrana fine.');
+    filtration.push('Conservare in bottiglia di vetro scuro, ben chiusa, al fresco e al buio.');
 
-    // ── Bench trial ──
-    // Dose grid based on category (per 100 mL)
-    let doseLow = 0.02;
-    let doseMid = 0.10;
-    let doseHigh = 0.30;
-
+    // Bench trial
+    let doseLow = 0.02, doseMid = 0.10, doseHigh = 0.30;
     switch (input.category) {
-        case 'chili':
-            doseLow = 0.005; doseMid = 0.02; doseHigh = 0.05; break;
-        case 'hop':
-            doseLow = 0.05; doseMid = 0.20; doseHigh = 0.40; break;
-        case 'wood':
-            doseLow = 0.10; doseMid = 0.50; doseHigh = 1.00; break;
-        case 'vanilla':
-            doseLow = 0.10; doseMid = 0.30; doseHigh = 0.50; break;
-        case 'seed_spice':
-        case 'bark_root':
-            doseLow = 0.02; doseMid = 0.10; doseHigh = 0.30; break;
-        case 'citrus_peel':
-            doseLow = 0.02; doseMid = 0.15; doseHigh = 0.30; break;
-        case 'coffee':
-            doseLow = 0.05; doseMid = 0.15; doseHigh = 0.30; break;
-        case 'cacao':
-            doseLow = 0.10; doseMid = 0.50; doseHigh = 1.00; break;
-        case 'fresh_herb':
-        case 'dried_herb':
-            doseLow = 0.05; doseMid = 0.20; doseHigh = 0.50; break;
-        case 'fruit':
-            doseLow = 0.10; doseMid = 0.50; doseHigh = 1.00; break;
-        default:
-            doseLow = 0.05; doseMid = 0.15; doseHigh = 0.40;
+        case 'chili': doseLow = 0.005; doseMid = 0.02; doseHigh = 0.05; break;
+        case 'hop': doseLow = 0.05; doseMid = 0.20; doseHigh = 0.40; break;
+        case 'wood': doseLow = 0.10; doseMid = 0.50; doseHigh = 1.00; break;
+        case 'vanilla': doseLow = 0.10; doseMid = 0.30; doseHigh = 0.50; break;
+        case 'seed_spice': case 'bark_root': doseLow = 0.02; doseMid = 0.10; doseHigh = 0.30; break;
+        case 'citrus_peel': doseLow = 0.02; doseMid = 0.15; doseHigh = 0.30; break;
+        case 'coffee': doseLow = 0.05; doseMid = 0.15; doseHigh = 0.30; break;
+        case 'cacao': doseLow = 0.10; doseMid = 0.50; doseHigh = 1.00; break;
+        case 'fresh_herb': case 'dried_herb': doseLow = 0.05; doseMid = 0.20; doseHigh = 0.50; break;
+        case 'fruit': doseLow = 0.10; doseMid = 0.50; doseHigh = 1.00; break;
+        default: doseLow = 0.05; doseMid = 0.15; doseHigh = 0.40;
     }
-
-    // Scale bench trial to actual sample volume
-    const sampleMl = input.test_sample_ml ?? 100;
+    const sampleMl = 100;
     const scaleDose = (mlPer100: number) => Math.round(mlPer100 * sampleMl / 100 * 1000) / 1000;
 
-    const benchTrial = {
-        doseLowMlPer100ml: doseLow,
-        doseMidMlPer100ml: doseMid,
-        doseHighMlPer100ml: doseHigh,
-        samples: [
-            { sample: 'A — Controllo', doseMlPer100: 0, doseMlActual: 0 },
-            { sample: 'B — Dose minima', doseMlPer100: doseLow, doseMlActual: scaleDose(doseLow) },
-            { sample: 'C — Dose bassa', doseMlPer100: doseMid, doseMlActual: scaleDose(doseMid) },
-            { sample: 'D — Dose media', doseMlPer100: doseHigh, doseMlActual: scaleDose(doseHigh) },
-            { sample: 'E — Dose alta', doseMlPer100: doseHigh * 2, doseMlActual: scaleDose(doseHigh * 2) },
-        ],
-        sampleMl,
-    };
-
-    // ── Recovered volume ──
-    const defaultRecoveryFraction =
+    // Recovery
+    const defaultRecFrac =
         input.category === 'hop' && input.ingredient_state === 'pellet' ? 0.55
         : input.category === 'coffee' && input.ingredient_state === 'ground' ? 0.50
         : input.category === 'cacao' ? 0.60
         : input.category === 'fresh_herb' ? 0.50
         : input.category === 'fruit' && input.ingredient_state === 'fresh' ? 0.55
         : 0.75;
-    const recoveryIsMeasured = input.recovered_tincture_volume_ml !== undefined;
-    const recoveredMl = recoveryIsMeasured
-        ? input.recovered_tincture_volume_ml!
-        : Math.round(solventMl * defaultRecoveryFraction);
-    const recoveryFraction = recoveredMl / solventMl;
 
-    // ── Batch dosing ──
-    let estimatedBatchDoseMl: number | null = null;
-    let alcoholContributionAbv: number | null = null;
-
-    if (input.beer_volume_l !== undefined && input.test_sample_ml !== undefined && input.test_dose_ml !== undefined) {
-        const batchVolumeMl = input.beer_volume_l * 1000;
-        estimatedBatchDoseMl = Math.round((input.test_dose_ml * batchVolumeMl) / input.test_sample_ml * 100) / 100;
-
-        // Use effective ABV if available, otherwise target
-        const tinctureAbv = effectiveAbvPercent ?? targetAbv;
-        const beerMl = input.beer_volume_l * 1000;
-        alcoholContributionAbv = Math.round(((estimatedBatchDoseMl * (tinctureAbv / 100)) / (beerMl + estimatedBatchDoseMl)) * 100 * 100) / 100;
-    }
-
-    // ── Warnings ──
+    // Warnings
     const warnings = getSafetyWarnings(input.ingredient, input.category);
-
-    // Out-of-preset ABV
     if (input.target_abv_percent !== undefined && (targetAbv < preset.abvRange[0] || targetAbv > preset.abvRange[1])) {
-        warnings.push(`⚠️ ABV target ${targetAbv}% fuori dal preset consigliato (${preset.abvRange[0]}–${preset.abvRange[1]}%).`);
+        warnings.push(`⚠️ ABV target ${targetAbv}% fuori dal preset (${preset.abvRange[0]}–${preset.abvRange[1]}%).`);
     }
-    // Out-of-preset extraction time
     if (extractionDays !== undefined && (extractionDays < statePreset.minDays || extractionDays > statePreset.maxDays)) {
-        warnings.push(`⚠️ Tempo scelto (${extractionDays}gg) fuori dal range consigliato per ${input.category}/${input.ingredient_state} (${statePreset.minDays}–${statePreset.maxDays}gg).`);
+        warnings.push(`⚠️ Tempo (${extractionDays}gg) fuori dal range ${input.category}/${input.ingredient_state} (${statePreset.minDays}–${statePreset.maxDays}gg).`);
     }
-    // Out-of-preset temperature
     if (input.extraction_temp_c !== undefined && input.extraction_temp_c !== statePreset.tempC) {
-        warnings.push(`⚠️ Temperatura scelta (${input.extraction_temp_c}°C) diversa dal preset consigliato (${statePreset.tempC}°C).`);
+        warnings.push(`⚠️ Temperatura (${input.extraction_temp_c}°C) diversa dal preset (${statePreset.tempC}°C).`);
     }
-
     if (effectiveAbvPercent !== null && effectiveAbvPercent < 20) {
-        warnings.push(`⚠️ L'ABV stimata della tintura scende a ~${effectiveAbvPercent}%. Sotto il 20% c'è rischio di contaminazione microbica.`);
+        warnings.push(`⚠️ ABV stimata tintura ~${effectiveAbvPercent}%. Sotto 20% rischio contaminazione.`);
     }
-
     if (input.ingredient_sugar_percent && input.ingredient_sugar_percent > 5) {
-        warnings.push(`⚠️ L'ingrediente contiene ~${input.ingredient_sugar_percent}% zuccheri → possibile rifermentazione. Aggiungere solo a birra stabilizzata o in keg freddo.`);
+        warnings.push(`⚠️ ~${input.ingredient_sugar_percent}% zuccheri → possibile rifermentazione.`);
     }
-
-    if (targetAbv > 80) {
-        warnings.push('⚠️ ABV > 80%: estrazione molto aggressiva, profilo potenzialmente resinoso.');
-    }
-
-    if (input.category === 'hop') {
-        warnings.push('⚠️ Una tintura di luppolo NON sostituisce il dry hopping. Non riproduce biotrasformazione, mouthfeel, interazioni olio-proteine-polifenoli.');
-    }
-
+    if (targetAbv > 80) warnings.push('⚠️ ABV > 80%: estrazione molto aggressiva.');
+    if (input.category === 'hop') warnings.push('⚠️ Tintura luppolo NON sostituisce dry hopping.');
     if (extractionDays && extractionDays > 14 && ['seed_spice', 'fresh_herb', 'citrus_peel', 'chili'].includes(input.category)) {
-        warnings.push('⚠️ Tempo di estrazione lungo (>14gg): rischio aumento di tannino, amaro, note medicinali o terrose.');
+        warnings.push('⚠️ Estrazione >14gg: rischio tannino, amaro, note medicinali.');
     }
-
     if (input.category === 'other' && !input.food_safe_confirmed) {
-        warnings.push('🚫 Categoria "other" senza conferma di sicurezza alimentare. Una concentrazione alcolica può estrarre composti pericolosi.');
+        warnings.push('🚫 Categoria "other" senza food_safe_confirmed.');
     }
 
     return {
-        mode: input.mode ?? 'plan',
+        mode: 'plan',
         ingredient: input.ingredient,
-        categoryLabel: preset.label,
         category: input.category,
-        targetAbvPercent: targetAbv,
-        alcohol95Ml: alcoholMl,
-        waterMl,
-        solventVolumeMl: solventMl,
+        categoryLabel: preset.label,
+        tinctureAbvPercent: effectiveAbvPercent ?? targetAbv,
+        alcohol95Ml: alcoholMl, waterMl, solventVolumeMl: solventMl,
         ingredientWeightG: input.ingredient_weight_g,
         ingredientToSolventRatio: ratioLabel,
-        extractionTime,
-        extractionTempC: tempC,
-        preparation,
-        agitation,
-        filtration,
-        benchTrial,
-        estimatedBatchDoseMl,
-        alcoholContributionAbv,
+        extractionTime, extractionTempC: tempC,
+        extractionMinHours: minHours, extractionMaxHours: maxHours,
+        preparation, agitation, filtration,
+        benchTrial: {
+            doseLowMlPer100ml: doseLow, doseMidMlPer100ml: doseMid, doseHighMlPer100ml: doseHigh,
+            samples: [
+                { sample: 'A — Controllo', doseMlPer100: 0, doseMlActual: 0 },
+                { sample: 'B — Minima', doseMlPer100: doseLow, doseMlActual: scaleDose(doseLow) },
+                { sample: 'C — Bassa', doseMlPer100: doseMid, doseMlActual: scaleDose(doseMid) },
+                { sample: 'D — Media', doseMlPer100: doseHigh, doseMlActual: scaleDose(doseHigh) },
+                { sample: 'E — Alta', doseMlPer100: doseHigh * 2, doseMlActual: scaleDose(doseHigh * 2) },
+            ],
+            sampleMl,
+        },
+        estimatedBatchDoseMl: null, alcoholContributionAbv: null,
         hasFermentables: preset.hasFermentables || (input.ingredient_sugar_percent ?? 0) > 5,
-        estimatedTinctureAbvPercent: effectiveAbvPercent,
-        recoveredMl,
-        recoveryFraction,
-        recoveryIsMeasured,
-        statePreset,
+        recoveredMl: Math.round(solventMl * defaultRecFrac),
+        recoveryFraction: defaultRecFrac, recoveryIsMeasured: false,
         warnings,
     };
+}
+
+function doseTincture(input: z.infer<typeof DoseInputSchema>): TincturePlan {
+    const preset = CATEGORY_PRESETS[input.category] ?? CATEGORY_PRESETS['other'];
+    const tinctureAbv = input.tincture_abv_percent ?? 50;
+    const sampleMl = input.test_sample_ml;
+    const batchVolumeMl = input.beer_volume_l * 1000;
+    const estimatedBatchDoseMl = Math.round((input.test_dose_ml * batchVolumeMl) / sampleMl * 100) / 100;
+    const beerMl = input.beer_volume_l * 1000;
+    const alcoholContributionAbv = Math.round(((estimatedBatchDoseMl * (tinctureAbv / 100)) / (beerMl + estimatedBatchDoseMl)) * 100 * 100) / 100;
+
+    const recoveryIsMeasured = input.recovered_tincture_volume_ml !== undefined;
+    const recoveredMl = input.recovered_tincture_volume_ml ?? null;
+    const recoveryFraction = recoveredMl !== null ? recoveredMl / (recoveredMl > 0 ? recoveredMl : 1) : null;
+
+    const warnings = getSafetyWarnings(input.ingredient, input.category);
+    if (input.ingredient_sugar_percent && input.ingredient_sugar_percent > 5) {
+        warnings.push(`⚠️ ~${input.ingredient_sugar_percent}% zuccheri → possibile rifermentazione.`);
+    }
+    if (input.category === 'hop') warnings.push('⚠️ Tintura luppolo NON sostituisce dry hopping.');
+    if (alcoholContributionAbv > 0.5) {
+        warnings.push(`⚠️ Contributo alcolico significativo: +${alcoholContributionAbv}% ABV.`);
+    }
+
+    return {
+        mode: 'dose',
+        ingredient: input.ingredient,
+        category: input.category,
+        categoryLabel: preset?.label ?? 'Sconosciuta',
+        tinctureAbvPercent: tinctureAbv,
+        alcohol95Ml: 0, waterMl: 0, solventVolumeMl: 0,
+        ingredientWeightG: 0, ingredientToSolventRatio: 'N/D',
+        extractionTime: 'N/D', extractionTempC: 0,
+        extractionMinHours: 0, extractionMaxHours: 0,
+        preparation: [], agitation: '', filtration: [],
+        benchTrial: {
+            doseLowMlPer100ml: 0, doseMidMlPer100ml: 0, doseHighMlPer100ml: 0,
+            samples: [
+                { sample: 'A — Controllo', doseMlPer100: 0, doseMlActual: 0 },
+                { sample: 'B — Scelta', doseMlPer100: input.test_dose_ml, doseMlActual: Math.round(input.test_dose_ml * sampleMl / 100 * 1000) / 1000 },
+            ],
+            sampleMl,
+        },
+        estimatedBatchDoseMl, alcoholContributionAbv,
+        hasFermentables: (input.ingredient_sugar_percent ?? 0) > 5,
+        recoveredMl, recoveryFraction, recoveryIsMeasured,
+        warnings,
+    };
+}
+
+function compute(input: TinctureCalculatorInput): TincturePlan {
+    return input.mode === 'plan' ? planTincture(input) : doseTincture(input);
 }
 
 // ── Formatting ───────────────────────────────────────────────────────────────
 
 function formatResults(input: TinctureCalculatorInput): string {
     const lines: string[] = [];
-    lines.push(`# 🧪 Tintura Alcolica: ${input.ingredient}`);
-    lines.push('');
-
-    let plan: TincturePlan;
-    try {
-        plan = compute(input);
-    } catch (e) {
-        lines.push(`❌ **Errore:** ${e instanceof Error ? e.message : String(e)}`);
-        return lines.join('\n');
-    }
+    const plan = compute(input);
 
     const stateLabel: Record<string, string> = {
         fresh: 'Fresco', dried: 'Essiccato', pellet: 'Pellet',
@@ -777,161 +664,142 @@ function formatResults(input: TinctureCalculatorInput): string {
         chips: 'Chips', cubes: 'Cubetti',
     };
 
-    // ── Overview ──
-    lines.push('## 📊 Parametri della tintura');
-    lines.push('');
-    lines.push('| Parametro | Valore |');
-    lines.push('|---|---|');
-    lines.push(`| Ingrediente | **${plan.ingredient}** |`);
-    lines.push(`| Categoria | ${plan.categoryLabel} |`);
-    lines.push(`| Stato | ${stateLabel[input.ingredient_state] ?? input.ingredient_state} |`);
-    lines.push(`| Peso ingrediente | **${plan.ingredientWeightG} g** |`);
-    lines.push(`| ABV target | **${plan.targetAbvPercent}%** |`);
-    lines.push(`| Volume solvente | **${plan.solventVolumeMl} mL** |`);
-    lines.push(`| Rapporto | ${plan.ingredientToSolventRatio} |`);
-    lines.push(`| Tempo estrazione | ${plan.extractionTime} |`);
-    lines.push(`| Temperatura | ${plan.extractionTempC} °C |`);
-    lines.push('');
-
-    // ── Solvent recipe ──
-    lines.push('## 🧫 Ricetta del solvente');
-    lines.push('');
-    lines.push(`Per ottenere **${plan.solventVolumeMl} mL** al **${plan.targetAbvPercent}%** partendo da alcol a **${input.source_abv_percent}°**:`);
-    lines.push('');
-    lines.push('| Componente | Quantità |');
-    lines.push('|---|---|');
-    lines.push(`| Alcol ${input.source_abv_percent}° | **${plan.alcohol95Ml} mL** |`);
-    lines.push(`| Acqua demineralizzata | **${plan.waterMl} mL** |`);
-    lines.push(`| Volume finale | **${plan.solventVolumeMl} mL** |`);
-    lines.push('');
-    lines.push('> Versare PRIMA l\'alcol, POI l\'acqua, quindi portare a volume. I volumi acqua–etanolo non sono perfettamente additivi.');
-    lines.push('');
-
-    if (plan.estimatedTinctureAbvPercent !== null) {
-        lines.push(`> ⚠️ ABV stimata della tintura dopo l'ingrediente: **~${plan.estimatedTinctureAbvPercent}%** (diluizione da acqua dell'ingrediente — stima semplificata, non sostituisce una misura alcolometrica).`);
+    if (plan.mode === 'dose') {
+        lines.push(`# 🧪 Tintura Alcolica: ${plan.ingredient} — DOSE BATCH`);
+        lines.push('');
+    } else {
+        lines.push(`# 🧪 Tintura Alcolica: ${plan.ingredient}`);
         lines.push('');
     }
 
-    // ── Warnings ──
+    // ── Warnings first ──
     if (plan.warnings.length > 0) {
         lines.push('## ⚠️ Avvertenze');
         lines.push('');
-        for (const w of plan.warnings) {
-            lines.push(`- ${w}`);
-        }
+        for (const w of plan.warnings) lines.push(`- ${w}`);
         lines.push('');
     }
 
-    // ── Preparation ──
-    lines.push('## 🔧 Preparazione');
-    lines.push('');
-    for (let i = 0; i < plan.preparation.length; i++) {
-        lines.push(`${i + 1}. ${plan.preparation[i]!}`);
-    }
-    lines.push('');
-
-    // ── Agitation ──
-    lines.push('## 🔄 Agitazione');
-    lines.push('');
-    lines.push(plan.agitation);
-    lines.push('');
-
-    // ── Filtration ──
-    lines.push('## 🫗 Filtrazione');
-    lines.push('');
-    for (let i = 0; i < plan.filtration.length; i++) {
-        lines.push(`${i + 1}. ${plan.filtration[i]!}`);
-    }
-    lines.push('');
-
-    // ── Bench trial ──
-    lines.push('## 🧪 Bench Trial (OBBLIGATORIO)');
-    lines.push('');
-    const sampleMl = plan.benchTrial.sampleMl;
-    if (sampleMl !== 100) {
-        lines.push(`Preparare 5 campioni da **${sampleMl} mL** di birra finita:`);
-    } else {
-        lines.push('Preparare 5 campioni da **100 mL** di birra finita:');
-    }
-    lines.push('');
-    lines.push('| Campione | Dose (mL/campione) |');
-    lines.push('|---|---|');
-    for (const s of plan.benchTrial.samples) {
-        lines.push(`| ${s.sample} | ${s.doseMlActual > 0 ? s.doseMlActual.toFixed(3) : '0'} |`);
-    }
-    lines.push('');
-    lines.push('Mescolare, attendere 10–30 minuti, assaggiare alla temperatura di servizio.');
-    lines.push('- Per legno: attendere almeno 15–30 min nel campione prima di giudicare.');
-    if (input.category === 'chili') {
-        lines.push('- Per peperoncino: iniziare da 1 goccia. Dosi <0.05 mL richiedono micropipetta o diluizione seriale (1 mL tintura + 9 mL solvente → 1:10).');
-    }
-    lines.push('');
-
-    // ── Batch dose ──
-    if (plan.estimatedBatchDoseMl !== null && plan.alcoholContributionAbv !== null && input.beer_volume_l !== undefined) {
-        lines.push('## 📐 Dose per il batch');
-        lines.push('');
-        lines.push(`Dose campione: **${input.test_dose_ml} mL** in **${input.test_sample_ml} mL** →`);
+    if (plan.mode === 'plan') {
+        // ── Overview ──
+        lines.push('## 📊 Parametri della tintura');
         lines.push('');
         lines.push('| Parametro | Valore |');
         lines.push('|---|---|');
-        lines.push(`| Volume birra (effettivo) | **${input.beer_volume_l} L** |`);
+        lines.push(`| Ingrediente | **${plan.ingredient}** |`);
+        lines.push(`| Categoria | ${plan.categoryLabel} |`);
+        const istate = (input as z.infer<typeof PlanInputSchema>).ingredient_state;
+        lines.push(`| Stato | ${stateLabel[istate] ?? istate} |`);
+        lines.push(`| Peso ingrediente | **${plan.ingredientWeightG} g** |`);
+        lines.push(`| ABV target | **${plan.tinctureAbvPercent}%** |`);
+        lines.push(`| Volume solvente | **${plan.solventVolumeMl} mL** |`);
+        lines.push(`| Rapporto | ${plan.ingredientToSolventRatio} |`);
+        lines.push(`| Tempo estrazione | ${plan.extractionTime} |`);
+        lines.push(`| Temperatura | ${plan.extractionTempC} °C |`);
+        lines.push('');
+
+        // ── Solvent recipe ──
+        const pin = input as z.infer<typeof PlanInputSchema>;
+        lines.push('## 🧫 Ricetta del solvente');
+        lines.push('');
+        lines.push(`Per ottenere **${plan.solventVolumeMl} mL** al **${plan.tinctureAbvPercent}%** partendo da alcol a **${pin.source_abv_percent}°**:`);
+        lines.push('');
+        lines.push('| Componente | Quantità |');
+        lines.push('|---|---|');
+        lines.push(`| Alcol ${pin.source_abv_percent}° | **${plan.alcohol95Ml} mL** |`);
+        lines.push(`| Acqua demineralizzata | **${plan.waterMl} mL** |`);
+        lines.push(`| Volume finale | **${plan.solventVolumeMl} mL** |`);
+        lines.push('');
+        lines.push('> Versare PRIMA l\'alcol, POI l\'acqua, quindi portare a volume. I volumi acqua–etanolo non sono perfettamente additivi.');
+        if (pin.ingredient_water_percent && pin.ingredient_water_percent > 0) {
+            lines.push(`> ⚠️ ABV stimata della tintura dopo l'ingrediente: **~${plan.tinctureAbvPercent}%** (diluizione da acqua dell'ingrediente — stima semplificata, non sostituisce una misura alcolometrica).`);
+        }
+        lines.push('');
+
+        // ── Preparation ──
+        lines.push('## 🔧 Preparazione');
+        lines.push('');
+        for (let i = 0; i < plan.preparation.length; i++) lines.push(`${i + 1}. ${plan.preparation[i]!}`);
+        lines.push('');
+
+        // ── Agitation ──
+        lines.push('## 🔄 Agitazione');
+        lines.push('');
+        lines.push(plan.agitation);
+        lines.push('');
+
+        // ── Filtration ──
+        lines.push('## 🫗 Filtrazione');
+        lines.push('');
+        for (let i = 0; i < plan.filtration.length; i++) lines.push(`${i + 1}. ${plan.filtration[i]!}`);
+        lines.push('');
+
+        // ── Bench trial ──
+        lines.push('## 🧪 Bench Trial (OBBLIGATORIO)');
+        lines.push('');
+        lines.push('Preparare 5 campioni da **100 mL** di birra finita:');
+        lines.push('');
+        lines.push('| Campione | Dose (mL/campione) |');
+        lines.push('|---|---|');
+        for (const s of plan.benchTrial.samples) {
+            lines.push(`| ${s.sample} | ${s.doseMlActual > 0 ? s.doseMlActual.toFixed(3) : '0'} |`);
+        }
+        lines.push('');
+        lines.push('Mescolare, attendere 10–30 minuti, assaggiare alla temperatura di servizio.');
+        lines.push('- Per legno: attendere almeno 15–30 min nel campione prima di giudicare.');
+        if (plan.category === 'chili') {
+            lines.push('- Per peperoncino: iniziare da 1 goccia. Dosi <0.05 mL richiedono micropipetta o diluizione seriale (1:10).');
+        }
+        lines.push('');
+
+        // Recovery info
+        if (plan.recoveryIsMeasured) {
+            lines.push(`*Volume recuperato misurato: **${plan.recoveredMl} mL** (${Math.round((plan.recoveryFraction ?? 0) * 100)}% del solvente).*`);
+        } else {
+            lines.push(`*Volume recuperato stimato: ~**${plan.recoveredMl} mL** (${Math.round((plan.recoveryFraction ?? 0) * 100)}% del solvente). Misurare il volume effettivo e usare mode:"dose" con recovered_tincture_volume_ml.*`);
+        }
+        lines.push('');
+
+        // Category notes
+        if ((input as z.infer<typeof PlanInputSchema>).show_details) {
+            lines.push('## 📝 Note specifiche');
+            lines.push('');
+            const presetKey = plan.category === 'hop' && (input as z.infer<typeof PlanInputSchema>).hop_variant === 'cold_short' ? 'hop_cold_short' : plan.category;
+            lines.push(CATEGORY_PRESETS[presetKey]?.notes ?? CATEGORY_PRESETS['other']!.notes);
+            lines.push('');
+        }
+    }
+
+    // ── Dose section (both modes) ──
+    if (plan.estimatedBatchDoseMl !== null && plan.alcoholContributionAbv !== null) {
+        lines.push('## 📐 Dose per il batch');
+        lines.push('');
+        const doseIn = input as z.infer<typeof DoseInputSchema>;
+        lines.push(`Dose campione: **${doseIn.test_dose_ml} mL** in **${doseIn.test_sample_ml} mL** →`);
+        lines.push('');
+        lines.push('| Parametro | Valore |');
+        lines.push('|---|---|');
+        lines.push(`| Volume birra (effettivo) | **${doseIn.beer_volume_l} L** |`);
+        lines.push(`| ABV tintura | **${plan.tinctureAbvPercent}%** |`);
         lines.push(`| Dose batch calcolata | **${plan.estimatedBatchDoseMl} mL** |`);
-        lines.push(`| Dose consigliata (70-80%) | **${Math.round(plan.estimatedBatchDoseMl * 0.75 * 100) / 100} mL** |`);
+        lines.push(`| Dose consigliata (75%) | **${Math.round(plan.estimatedBatchDoseMl * 0.75 * 100) / 100} mL** |`);
         lines.push(`| Contributo ABV | **+${plan.alcoholContributionAbv}%** |`);
         lines.push('');
 
         if (plan.alcoholContributionAbv > 0.5) {
-            lines.push(`> ⚠️ Il contributo alcolico non è trascurabile (+${plan.alcoholContributionAbv}% ABV). Consideralo nel calcolo ABV finale.`);
+            lines.push(`> ⚠️ Contributo alcolico significativo (+${plan.alcoholContributionAbv}% ABV).`);
         }
-
         if (plan.hasFermentables) {
-            lines.push('> ⚠️ L\'estratto contiene zuccheri fermentabili. Aggiungere solo a birra stabilizzata o in keg freddo per evitare rifermentazione.');
+            lines.push('> ⚠️ Zuccheri fermentabili. Aggiungere solo a birra stabilizzata o in keg freddo.');
         }
 
         lines.push('');
-        lines.push('**Procedura di aggiunta:**');
-        lines.push(`1. Aggiungere il **70–80%** della dose calcolata (~${Math.round(plan.estimatedBatchDoseMl * 0.75 * 100) / 100} mL).`);
-        lines.push('2. Miscelare delicatamente.');
-        if (input.beer_volume_l <= 30) {
-            lines.push('3. Se in keg: spurgare, trasferire in closed transfer, miscelare.');
-            lines.push('4. Se in bottiglia: aggiungere al bottling bucket con la soluzione di priming, miscelare lentamente.');
-        }
-        lines.push('5. Assaggiare dopo 12–24 ore.');
-        lines.push('6. Correggere con la parte restante SOLO SE necessaria.');
+        lines.push('**Procedura:**');
+        lines.push(`1. Aggiungere il 75% (~${Math.round(plan.estimatedBatchDoseMl * 0.75 * 100) / 100} mL).`);
+        lines.push('2. Miscelare delicatamente. In keg: closed transfer. In bottiglia: al bottling bucket con priming.');
+        lines.push('3. Assaggiare dopo 12–24 ore.');
+        lines.push('4. Correggere con la parte restante SOLO SE necessaria.');
         lines.push('');
-
-        // Dosing table for reference
-        lines.push('## 📋 Tabella dosaggi di riferimento');
-        lines.push('');
-        lines.push('| Dose campione (mL/100mL) | Dose batch (mL) |');
-        lines.push('|---|---|');
-        for (const ml of [0.05, 0.10, 0.15, 0.20, 0.30, 0.50, 1.0]) {
-            const batchDose = Math.round(ml * input.beer_volume_l * 10 * 100) / 100;
-            lines.push(`| ${ml} | **${batchDose}** |`);
-        }
-        lines.push('');
-    } else if (input.beer_volume_l !== undefined && (input.test_sample_ml === undefined || input.test_dose_ml === undefined)) {
-        lines.push('## 📐 Dose per il batch');
-        lines.push('');
-        lines.push('⚠️ **Manca il bench trial.** Fornisci `test_sample_ml` e `test_dose_ml` per calcolare la dose batch.');
-        lines.push('');
-    }
-
-    // ── Category-specific notes ──
-    if (input.show_details) {
-        lines.push('## 📝 Note specifiche');
-        lines.push('');
-        lines.push(CATEGORY_PRESETS[input.category === 'hop' && input.hop_variant === 'cold_short' ? 'hop_cold_short' : input.category]?.notes ?? CATEGORY_PRESETS['other']!.notes);
-        lines.push('');
-
-        if (input.category === 'hop') {
-            lines.push('### Quando usare la tintura di luppolo');
-            lines.push('');
-            lines.push('✅ **Adatta per:** correggere aroma insufficiente, confrontare varietà, costruire blend aromatici, aggiungere aroma al packaging, sperimentare senza perdere litri di birra.');
-            lines.push('❌ **Non adatta come unica tecnica per:** NEIPA (biotrasformazione, mouthfeel), interazione lievito attivo, profilo complesso multi-stage dry hop.');
-            lines.push('');
-        }
     }
 
     // ── Safety checklist ──
@@ -943,16 +811,9 @@ function formatResults(input: TinctureCalculatorInput): string {
     lines.push('- [ ] Tappo resistente all\'alcol');
     lines.push('- [ ] Conservazione al BUIO');
     lines.push('- [ ] Ingrediente certificato per uso alimentare');
-    lines.push('- [ ] NESSUNA fiamma, fornello o piastra vicino all\'alcol a 95°');
+    lines.push('- [ ] NESSUNA fiamma, fornello o piastra vicino all\'alcol concentrato');
     lines.push('- [ ] Bench trial completato PRIMA di dosare il batch');
     lines.push('');
-
-    lines.push('');
-    if (plan.recoveryIsMeasured) {
-        lines.push(`*Volume recuperato misurato: **${plan.recoveredMl} mL** (${Math.round(plan.recoveryFraction * 100)}% del solvente).*`);
-    } else {
-        lines.push(`*Volume recuperato stimato: ~**${plan.recoveredMl} mL** (${Math.round(plan.recoveryFraction * 100)}% del solvente). Misurare il volume effettivo e usare recovered_tincture_volume_ml per calcoli più precisi.*`);
-    }
 
     return lines.join('\n');
 }
@@ -979,8 +840,9 @@ export class TinctureCalculatorTool implements BuiltinTool<TinctureCalculatorInp
     resolveExecution(rawArgs: TinctureCalculatorInput): ToolExecution {
         const parsed = TinctureCalculatorInputSchema.parse(rawArgs);
         const args = parsed as TinctureCalculatorInput;
+        const abvDesc = args.mode === 'plan' ? (args.target_abv_percent ?? 'auto') : (args.tincture_abv_percent ?? 'auto');
         return {
-            description: `Tintura: ${args.ingredient} (${args.category}) @ ${args.target_abv_percent ?? 'auto'}%`,
+            description: `Tintura: ${args.ingredient} (${args.category}) @ ${abvDesc}%`,
             approvalRule: this.name,
             execute: () => {
                 try { return Promise.resolve({ output: formatResults(args) }); }
