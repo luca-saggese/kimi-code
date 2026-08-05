@@ -42,8 +42,28 @@ export const WaterProfileCalculatorInputSchema = z.object({
   ]),
   batch_size_liters: z.number().optional()
     .describe('IGNORATO — usa mash_water_liters e/o sparge_water_liters. Questo campo è conservato per compatibilità ma non viene usato nei calcoli.'),
-  mash_water_liters: z.number().positive().describe('Volume acqua di ammostamento in litri. OBBLIGATORIO (direttamente o in combinazione con sparge_water_liters).'),
-  sparge_water_liters: z.number().nonnegative().describe('Volume acqua di sparge in litri. Opzionale; se omesso il calcolo usa solo mash_water_liters.'),
+  mash_water_liters: z.number().positive().optional()
+    .describe('Volume acqua di ammostamento in litri. Se omesso, calcolato automaticamente da grain_kg + mash_ratio_l_per_kg + dead_space_l.'),
+  sparge_water_liters: z.number().nonnegative().optional()
+    .describe('Volume acqua di sparge in litri. Se omesso, calcolato automaticamente da pre_boil_target_l + grain_kg × grain_absorption_l_per_kg − mash_water_liters.'),
+  grain_kg: z.number().positive().optional()
+    .describe('Peso totale dei grani in kg. Necessario per il calcolo automatico dei volumi di mash e sparge.'),
+  mash_ratio_l_per_kg: z.number().positive().optional()
+    .describe('Rapporto acqua/malto in L/kg. Default: 3.0.'),
+  dead_space_l: z.number().nonnegative().optional()
+    .describe('Spazio morto sotto/intorno al cestello in litri (es. BrewZilla Gen 3.1.1: ~6.5 L, Gen 4: ~5–6 L). Default: 6.5.'),
+  grain_absorption_l_per_kg: z.number().positive().optional()
+    .describe('Assorbimento delle trebbie in L/kg. Default: 0.9 (range tipico 0.8–0.95 per sistemi single-vessel).'),
+  pre_boil_target_l: z.number().positive().optional()
+    .describe('Volume pre-boil target in litri. Se omesso, calcolato da fermenter_target_l + boil_off_l_per_hour × boil_duration_h + trub_loss_l.'),
+  fermenter_target_l: z.number().positive().optional()
+    .describe('Volume target nel fermentatore in litri (es. 20–23 L). Usato per calcolare automaticamente il pre-boil.'),
+  boil_off_l_per_hour: z.number().nonnegative().optional()
+    .describe('Tasso di evaporazione in L/h. Default: 3.0. Misuralo sul tuo impianto.'),
+  boil_duration_h: z.number().positive().optional()
+    .describe('Durata bollitura in ore. Default: 1.0.'),
+  trub_loss_l: z.number().nonnegative().optional()
+    .describe('Perdite di trub e trasferimento in litri. Default: 2.0.'),
   target_ph: z.number().optional(),
 });
 
@@ -146,7 +166,8 @@ export class WaterProfileCalculatorTool implements BuiltinTool<WaterProfileCalcu
   readonly name = 'water_profile_calculator' as const;
   readonly description =
     'Calculate water mineral additions (gypsum, CaCl2, Epsom, baking soda, lactic acid) to hit a target water profile for any beer style. Uses a multi-variable solver that accounts for cross-ion contributions. ' +
-    'REQUIRED: pass mash_water_liters and/or sparge_water_liters (water volumes, NOT batch_size_liters). batch_size_liters is ignored.';
+    'Can auto-calculate mash & sparge water volumes from grain bill, dead space, absorption, and pre-boil/fermenter targets (BrewZilla-style). ' +
+    'Pass grain_kg + fermenter_target_l for full auto mode, or mash_water_liters + sparge_water_liters for manual mode.';
   readonly parameters: Record<string, unknown> = toInputJsonSchema(WaterProfileCalculatorInputSchema);
 
   resolveExecution(args: WaterProfileCalculatorInput): ToolExecution {
@@ -164,13 +185,46 @@ export class WaterProfileCalculatorTool implements BuiltinTool<WaterProfileCalcu
       const s = args.source_water;
 
       // ── Water volume ──────────────────────────────────────────────────
-      const mashVol = args.mash_water_liters ?? 0;
-      const spargeVol = args.sparge_water_liters ?? 0;
+      // Defaults for auto-calculation
+      const MASH_RATIO = args.mash_ratio_l_per_kg ?? 3.0;
+      const DEAD_SPACE = args.dead_space_l ?? 6.5;
+      const ABSORPTION = args.grain_absorption_l_per_kg ?? 0.9;
+      const BOIL_OFF = args.boil_off_l_per_hour ?? 3.0;
+      const BOIL_HOURS = args.boil_duration_h ?? 1.0;
+      const TRUB_LOSS = args.trub_loss_l ?? 2.0;
+
+      // Resolve pre-boil target: explicit > computed from fermenter > fallback
+      let preBoilTarget = args.pre_boil_target_l;
+      if (preBoilTarget == null && args.fermenter_target_l != null) {
+        preBoilTarget = args.fermenter_target_l + BOIL_OFF * BOIL_HOURS + TRUB_LOSS;
+      }
+
+      // Resolve mash & sparge volumes
+      let mashVol = args.mash_water_liters;
+      let spargeVol = args.sparge_water_liters;
+
+      if (args.grain_kg != null && args.grain_kg > 0) {
+        // Auto-calculate mash water if not explicitly provided
+        if (mashVol == null) {
+          mashVol = args.grain_kg * MASH_RATIO + DEAD_SPACE;
+        }
+        // Auto-calculate sparge water if not explicitly provided and we have pre-boil
+        if (spargeVol == null && preBoilTarget != null) {
+          const absorptionLoss = args.grain_kg * ABSORPTION;
+          spargeVol = preBoilTarget + absorptionLoss - mashVol;
+          if (spargeVol < 0) spargeVol = 0;
+        }
+      }
+
+      // Fallback: if still no mash, use 0
+      if (mashVol == null) mashVol = 0;
+      if (spargeVol == null) spargeVol = 0;
+
       const totalVol = mashVol + spargeVol;
       if (totalVol <= 0) {
         return Promise.resolve({
           isError: true,
-          output: 'Specificare mash_water_liters e/o sparge_water_liters (volume d\'acqua, non batch size).',
+          output: 'Specificare mash_water_liters e/o sparge_water_liters, oppure grain_kg + fermenter_target_l per il calcolo automatico.',
         });
       }
 
@@ -273,7 +327,44 @@ export class WaterProfileCalculatorTool implements BuiltinTool<WaterProfileCalcu
       const lines: string[] = [
         `Profilo acqua per **${args.target_profile}** (${t.desc})`,
         '',
-        `Volume acqua: ${totalVol.toFixed(1)} L (mash ${mashVol.toFixed(1)} L, sparge ${spargeVol.toFixed(1)} L)`,
+        `Volume acqua totale: ${totalVol.toFixed(1)} L (mash ${mashVol.toFixed(1)} L, sparge ${spargeVol.toFixed(1)} L)`,
+      ];
+
+      // ── Volume breakdown (if auto-calculated) ─────────────────────────
+      if (args.grain_kg != null && args.grain_kg > 0) {
+        const pctMash = totalVol > 0 ? (mashVol / totalVol * 100) : 0;
+        const pctSparge = totalVol > 0 ? (spargeVol / totalVol * 100) : 0;
+        lines.push(
+          '',
+          'Dettaglio calcolo volumi:',
+          `  • Grani: ${args.grain_kg} kg`,
+          `  • Rapporto mash: ${MASH_RATIO} L/kg → ${(args.grain_kg * MASH_RATIO).toFixed(1)} L`,
+          `  • Spazio morto (dead space): ${DEAD_SPACE} L`,
+          `  • Mash = ${(args.grain_kg * MASH_RATIO).toFixed(1)} + ${DEAD_SPACE} = ${mashVol.toFixed(1)} L`,
+        );
+        if (preBoilTarget != null) {
+          const absorptionLoss = args.grain_kg * ABSORPTION;
+          lines.push(
+            `  • Pre-boil target: ${preBoilTarget.toFixed(1)} L`,
+            `  • Assorbimento trebbie: ${args.grain_kg} × ${ABSORPTION} = ${absorptionLoss.toFixed(1)} L`,
+            `  • Sparge = ${preBoilTarget.toFixed(1)} + ${absorptionLoss.toFixed(1)} − ${mashVol.toFixed(1)} = ${spargeVol.toFixed(1)} L`,
+          );
+        }
+        if (args.fermenter_target_l != null) {
+          lines.push(
+            `  • Fermentatore target: ${args.fermenter_target_l} L`,
+            `  • Evaporazione: ${BOIL_OFF} L/h × ${BOIL_HOURS} h = ${(BOIL_OFF * BOIL_HOURS).toFixed(1)} L`,
+            `  • Perdite trub/trasferimento: ${TRUB_LOSS} L`,
+            `  • Pre-boil = ${args.fermenter_target_l} + ${(BOIL_OFF * BOIL_HOURS).toFixed(1)} + ${TRUB_LOSS} = ${preBoilTarget!.toFixed(1)} L`,
+          );
+        }
+        lines.push(
+          '',
+          `Ripartizione: mash ${pctMash.toFixed(0)}% / sparge ${pctSparge.toFixed(0)}%`,
+        );
+      }
+
+      lines.push(
         '',
         'Acqua sorgente → target → risultato:',
         `  Ca:   ${s.ca} → ${t.ca} → ${finalCa.toFixed(1)} mg/L`,
@@ -284,7 +375,7 @@ export class WaterProfileCalculatorTool implements BuiltinTool<WaterProfileCalcu
         `  HCO₃: ${s.hco3} → ${t.hco3} → ${finalHco3.toFixed(1)} mg/L`,
         '',
         'Aggiunte consigliate (acqua totale):',
-      ];
+      );
 
       const adds: string[] = [];
       const gypsumG = g * totalVol;
