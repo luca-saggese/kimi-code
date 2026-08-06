@@ -1,11 +1,11 @@
 import { ErrorCodes } from '@moonshot-ai/kimi-code-sdk';
 
-export const PRODUCT_NAME = 'Kimi Code';
-export const CLI_COMMAND_NAME = 'kimi';
+export const PRODUCT_NAME = 'Brew master';
+export const CLI_COMMAND_NAME = 'brewmaster';
 export const PROCESS_NAME = 'kimi-code';
 
 // Used in telemetry app names and HTTP User-Agent headers.
-export const CLI_USER_AGENT_PRODUCT = 'kimi-code-cli';
+export const CLI_USER_AGENT_PRODUCT = 'brewmaster-cli';
 export const CLI_UI_MODE = 'shell';
 // Telemetry ui_mode for the `kimi web` host. Same product
 // as the CLI (CLI_USER_AGENT_PRODUCT); the surface is distinguished by ui_mode.
