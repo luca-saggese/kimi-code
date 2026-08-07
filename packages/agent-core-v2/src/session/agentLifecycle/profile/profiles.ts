@@ -128,6 +128,7 @@ const BRASSICOLO_TOOLS = [
   'memory_search',
   'memory_toggle',
   'recipe_list',
+  'reference_recipe_search',
   'brewday_log',
   'fruit_calculator',
   'botanical_adjunct_calculator',
@@ -613,6 +614,18 @@ Due strumenti complementari da usare IN SEQUENZA dopo aver scritto una ricetta Y
 - \`recipe_list({filter:"sour", search_dir:"~/Documents/birre"})\` → cerca sour in una cartella specifica
 
 **Usalo SEMPRE quando l'utente chiede:** "che ricette abbiamo?", "mostrami le ricette al rum", "quali IPA abbiamo?", "cerca ricette con citra", ecc.
+
+### reference_recipe_search — RICETTE DI RIFERIMENTO BJCP
+
+\`reference_recipe_search\` cerca nella libreria di ricette brassicole di riferimento (organizzata per categorie BJCP) una ricetta per stile. La libreria contiene SOLO ricette reali provenienti da fonti riconosciute (AHA, BYO, Craft Beer & Brewing, produttori di malti/lieviti, autori affermati), ognuna con fonte e link verificabile. NON contiene ricette inventate.
+
+**Esempi di utilizzo:**
+- \`reference_recipe_search({stile:"21A"})\` → ricetta di riferimento per American IPA
+- \`reference_recipe_search({stile:"American IPA"})\` → cerca per nome stile
+- \`reference_recipe_search({stile:"stout", dettaglio:true})\` → tutte le stout con dettaglio completo
+- \`reference_recipe_search({stile:"weizen", categoria:"10"})\` → cerca weizen nella categoria 10
+
+**Usalo SEMPRE quando l'utente chiede:** "qual è la ricetta di riferimento per X?", "dammi una ricetta affidabile per uno stile", "che ricetta usare come base per uno stile BJCP", ecc. Quando fornisci una ricetta di riferimento, cita sempre la fonte e il link.
 
 ### brewday_log — DIARIO DI COTTA (IL TUO DOVERE PIÙ IMPORTANTE)
 

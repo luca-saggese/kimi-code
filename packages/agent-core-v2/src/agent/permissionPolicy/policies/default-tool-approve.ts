@@ -35,6 +35,7 @@ const DEFAULT_APPROVE_TOOLS = new Set([
   'yaml_to_docx',
   'yaml_to_pdf',
   'recipe_list',
+  'reference_recipe_search',
   'brewday_log',
   'fruit_calculator',
   'botanical_adjunct_calculator',

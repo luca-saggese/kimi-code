@@ -238,6 +238,7 @@ import '#/agent/brewing/memory-save';
 import '#/agent/brewing/memory-search';
 import '#/agent/brewing/memory-toggle';
 import '#/agent/brewing/recipe-list';
+import '#/agent/brewing/reference-recipe-search';
 import '#/agent/brewing/brewday-log';
 import '#/agent/brewing/fruit-calculator';
 import '#/agent/brewing/spice-calculator';
