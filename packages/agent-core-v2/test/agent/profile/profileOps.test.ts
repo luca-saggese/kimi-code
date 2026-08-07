@@ -76,6 +76,21 @@ function createSessionContextStub(): ISessionContext {
   };
 }
 
+function createWorkspaceContextStub(): ISessionWorkspaceContext {
+  return {
+    _serviceBrand: undefined,
+    workDir: '/tmp',
+    additionalDirs: [],
+    setWorkDir: () => undefined,
+    setAdditionalDirs: () => undefined,
+    resolve: (rel: string) => rel,
+    isWithin: () => true,
+    assertAllowed: (abs: string) => abs,
+    addAdditionalDir: () => undefined,
+    removeAdditionalDir: () => undefined,
+  };
+}
+
 let disposables: DisposableStore;
 let ix: TestInstantiationService;
 let log: IAppendLogStore;
@@ -101,7 +116,7 @@ function buildHost(key: string): {
   host.stub(IHostFileSystem, stubUnused());
   host.stub(IBootstrapService, stubUnused());
   host.stub(ISessionContext, createSessionContextStub());
-  host.stub(ISessionWorkspaceContext, stubUnused());
+  host.stub(ISessionWorkspaceContext, createWorkspaceContextStub());
   host.stub(IAgentProfileCatalogService, stubUnused());
   host.stub(ISessionSkillCatalog, stubUnused());
   host.set(IAgentProfileService, new SyncDescriptor(AgentProfileService));

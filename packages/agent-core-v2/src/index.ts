@@ -232,6 +232,7 @@ import '#/agent/brewing/ibu-calculator';
 import '#/agent/brewing/priming-calculator';
 import '#/agent/brewing/recipe-validator';
 import '#/agent/brewing/inventory-search';
+import '#/agent/brewing/inventory-manager';
 import '#/agent/brewing/yaml-to-docx';
 import '#/agent/brewing/yaml-to-pdf';
 import '#/agent/brewing/memory-save';

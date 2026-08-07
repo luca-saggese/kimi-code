@@ -32,6 +32,7 @@ const DEFAULT_APPROVE_TOOLS = new Set([
   'priming_calculator',
   'recipe_validator',
   'inventory_search',
+  'inventory_manager',
   'yaml_to_docx',
   'yaml_to_pdf',
   'recipe_list',

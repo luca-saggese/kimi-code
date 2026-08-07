@@ -122,6 +122,7 @@ const BRASSICOLO_TOOLS = [
   'priming_calculator',
   'recipe_validator',
   'inventory_search',
+  'inventory_manager',
   'yaml_to_docx',
   'yaml_to_pdf',
   'memory_save',
@@ -614,6 +615,26 @@ Due strumenti complementari da usare IN SEQUENZA dopo aver scritto una ricetta Y
 - \`recipe_list({filter:"sour", search_dir:"~/Documents/birre"})\` → cerca sour in una cartella specifica
 
 **Usalo SEMPRE quando l'utente chiede:** "che ricette abbiamo?", "mostrami le ricette al rum", "quali IPA abbiamo?", "cerca ricette con citra", ecc.
+
+### inventory_manager — GESTIONE INVENTARIO PERSISTENTE
+
+\`inventory_manager\` gestisce l'inventario persistente delle materie prime brassicole (malti, luppoli, lieviti, spezie, adjunct, sali acqua, zuccheri), salvato in \`~/.kimi-code/brewing/inventory.json\`. È il tool per TENERE TRACCIA di cosa hai in casa, quanto ne hai, cosa scade e cosa comprare.
+
+**Operazioni disponibili:**
+- \`inventory_manager({operation:"add", name:"Pilsner Malt Weyermann", category:"malt", quantity:5, unit:"kg", bestBefore:"2026-12-31"})\` → aggiunge un nuovo articolo (o riapprovvigiona uno esistente)
+- \`inventory_manager({operation:"remove", name:"Citra"})\` → elimina un articolo
+- \`inventory_manager({operation:"adjust", name:"Citra", quantity:-50, unit:"g"})\` → aggiunge/sottrae quantità (delta negativo = consumo)
+- \`inventory_manager({operation:"list", category:"hop"})\` → elenca gli articoli (filtrabile per categoria)
+- \`inventory_manager({operation:"list", expiringWithinDays:30})\` → elenca solo gli articoli in scadenza
+- \`inventory_manager({operation:"list", lowStockBelow:0.5})\` → elenca solo gli articoli con scorte basse
+- \`inventory_manager({operation:"search", name:"citra"})\` → cerca per nome o note
+- \`inventory_manager({operation:"stats"})\` → riepilogo di valore scorte, articoli in scadenza e scorte basse
+
+**Categorie:** malt, hop, yeast, spice, adjunct, water_salt, sugar, other.
+
+**Usalo SEMPRE quando l'utente:** parla di cosa ha in casa, chiede cosa comprare per una ricetta, menziona scorte/scadenze/quantità di ingredienti, o quando stai progettando una ricetta e devi verificare la disponibilità degli ingredienti. Quando consumi un ingrediente in una cotta (es. "ho usato 200g di Citra"), aggiorna l'inventario con \`adjust\` con delta negativo.
+
+**Differenza con \`inventory_search\`:** \`inventory_search\` cerca nel CATALOGO VIRTUALE STATICO (specifiche tecniche e sostituti di malti/luppoli/lieviti noti). \`inventory_manager\` gestisce il TUO MAGAZZINO PERSISTENTE (quantità reali, scadenze, costi). Usali entrambi: \`inventory_search\` per le specifiche, \`inventory_manager\` per le scorte.
 
 ### reference_recipe_search — RICETTE DI RIFERIMENTO BJCP
 

@@ -2,7 +2,7 @@
  * Reference recipe search tool — searches the curated BJCP reference recipe
  * library for a beer style.
  *
- * The reference library lives under `src/agent/brewing/recipes/<category>/`
+ * The reference library is bundled into the package (see `reference-recipes.ts`)
  * and contains only recipes sourced from recognized public references
  * (AHA, BYO, Craft Beer & Brewing, malt/yeast producers, established authors).
  * Every recipe carries a `fonte` (source) block with a URL and a verification
@@ -12,13 +12,11 @@
  */
 
 import { z } from 'zod';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import * as yaml from 'js-yaml';
 
 import type { BuiltinTool, ToolExecution, ExecutableToolResult } from '#/tool/toolContract';
 import { registerTool } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
+import { getAllReferenceRecipes } from './reference-recipes';
 
 export const ReferenceRecipeSearchInputSchema = z.object({
   stile: z.string().describe('BJCP style code (e.g. "21A"), style name (e.g. "American IPA"), or keyword (e.g. "stout", "weizen").'),
@@ -29,7 +27,6 @@ export const ReferenceRecipeSearchInputSchema = z.object({
 export type ReferenceRecipeSearchInput = z.infer<typeof ReferenceRecipeSearchInputSchema>;
 
 interface ReferenceRecipeSummary {
-  path: string;
   nome: string;
   stile: string;
   codice_bjcp: string;
@@ -47,81 +44,43 @@ interface ReferenceRecipeSummary {
     ibu?: number;
     ebc?: number;
   };
+  data: Record<string, unknown>;
 }
 
-const RECIPES_ROOT = resolve(__dirname, 'recipes');
-
-function isReferenceRecipe(data: Record<string, unknown>): boolean {
-  const params = data['parametri'] as Record<string, unknown> | undefined;
-  const fonte = data['fonte'] as Record<string, unknown> | undefined;
-  return (
-    typeof data['nome'] === 'string' &&
-    typeof data['stile'] === 'string' &&
-    typeof params === 'object' &&
-    params !== null &&
-    typeof fonte === 'object' &&
-    fonte !== null &&
-    typeof fonte['url'] === 'string'
-  );
-}
-
-function parseReferenceRecipe(filePath: string): ReferenceRecipeSummary | null {
-  try {
-    const raw = readFileSync(filePath, 'utf-8');
-    const data = yaml.load(raw) as unknown;
-    if (typeof data !== 'object' || data === null) return null;
-    const d = data as Record<string, unknown>;
-    if (!isReferenceRecipe(d)) return null;
-
-    const params = d['parametri'] as Record<string, unknown>;
-    const fonte = d['fonte'] as Record<string, unknown>;
-
-    return {
-      path: filePath,
-      nome: String(d['nome'] ?? 'Sconosciuta'),
-      stile: String(d['stile'] ?? 'Non specificato'),
-      codice_bjcp: String(d['codice_bjcp'] ?? ''),
-      fonte: {
-        nome: String(fonte['nome'] ?? ''),
-        url: String(fonte['url'] ?? ''),
-        autore: fonte['autore'] ? String(fonte['autore']) : undefined,
-        verifica: String(fonte['verifica'] ?? ''),
-      },
-      parametri: {
-        batch_size_litri: typeof params['batch_size_litri'] === 'number' ? params['batch_size_litri'] : undefined,
-        og: typeof params['og'] === 'number' ? params['og'] : undefined,
-        fg: typeof params['fg'] === 'number' ? params['fg'] : undefined,
-        abv_percent: typeof params['abv_percent'] === 'number' ? params['abv_percent'] : undefined,
-        ibu: typeof params['ibu'] === 'number' ? params['ibu'] : undefined,
-        ebc: typeof params['ebc'] === 'number' ? params['ebc'] : undefined,
-      },
-    };
-  } catch {
+function parseReferenceRecipe(recipe: { code: string; data: Record<string, unknown> }): ReferenceRecipeSummary | null {
+  const d = recipe.data;
+  const params = d['parametri'] as Record<string, unknown> | undefined;
+  const fonte = d['fonte'] as Record<string, unknown> | undefined;
+  if (
+    typeof d['nome'] !== 'string' ||
+    typeof d['stile'] !== 'string' ||
+    typeof params !== 'object' || params === null ||
+    typeof fonte !== 'object' || fonte === null ||
+    typeof fonte['url'] !== 'string'
+  ) {
     return null;
   }
-}
 
-function scanRecipeFiles(dir: string): string[] {
-  const results: string[] = [];
-  try {
-    const entries = readdirSync(dir);
-    for (const entry of entries) {
-      const fullPath = join(dir, entry);
-      try {
-        const st = statSync(fullPath);
-        if (st.isDirectory()) {
-          results.push(...scanRecipeFiles(fullPath));
-        } else if (st.isFile() && (entry.endsWith('.yaml') || entry.endsWith('.yml'))) {
-          results.push(fullPath);
-        }
-      } catch {
-        // skip inaccessible entries
-      }
-    }
-  } catch {
-    // skip inaccessible directories
-  }
-  return results;
+  return {
+    nome: String(d['nome']),
+    stile: String(d['stile']),
+    codice_bjcp: String(d['codice_bjcp'] ?? recipe.code),
+    fonte: {
+      nome: String(fonte['nome'] ?? ''),
+      url: String(fonte['url'] ?? ''),
+      autore: fonte['autore'] ? String(fonte['autore']) : undefined,
+      verifica: String(fonte['verifica'] ?? ''),
+    },
+    parametri: {
+      batch_size_litri: typeof params['batch_size_litri'] === 'number' ? params['batch_size_litri'] : undefined,
+      og: typeof params['og'] === 'number' ? params['og'] : undefined,
+      fg: typeof params['fg'] === 'number' ? params['fg'] : undefined,
+      abv_percent: typeof params['abv_percent'] === 'number' ? params['abv_percent'] : undefined,
+      ibu: typeof params['ibu'] === 'number' ? params['ibu'] : undefined,
+      ebc: typeof params['ebc'] === 'number' ? params['ebc'] : undefined,
+    },
+    data: d,
+  };
 }
 
 function normalize(q: string): string {
@@ -166,50 +125,49 @@ function formatSummary(r: ReferenceRecipeSummary): string {
 
 function formatFull(r: ReferenceRecipeSummary): string {
   const lines: string[] = [formatSummary(r), ''];
-  try {
-    const raw = readFileSync(r.path, 'utf-8');
-    const data = yaml.load(raw) as Record<string, unknown>;
-    if (data && typeof data === 'object') {
-      const desc = data['descrizione'];
-      if (typeof desc === 'string') lines.push(`📝 ${desc}`, '');
-      const grist = data['grist'];
-      if (Array.isArray(grist)) {
-        lines.push('🌾 **Grist:**');
-        for (const g of grist as Array<Record<string, unknown>>) {
-          lines.push(`  - ${g['malto']} ${g['kg']}kg${g['percent'] ? ` (${g['percent']}%)` : ''}`);
-        }
-        lines.push('');
-      }
-      const hops = data['luppolatura'];
-      if (Array.isArray(hops)) {
-        lines.push('🌿 **Luppolatura:**');
-        for (const h of hops as Array<Record<string, unknown>>) {
-          lines.push(`  - ${h['varieta']} ${h['grammi']}g @ ${h['tempo_min']}min (${h['uso']})`);
-        }
-        lines.push('');
-      }
-      const yeast = data['lievito'];
-      if (yeast && typeof yeast === 'object') {
-        const y = yeast as Record<string, unknown>;
-        lines.push(`🧫 **Lievito:** ${y['ceppo'] ?? ''}${y['forma'] ? ` (${y['forma']})` : ''}`);
-        lines.push('');
-      }
-      const mash = data['mash'];
-      if (mash && typeof mash === 'object') {
-        const m = mash as Record<string, unknown>;
-        lines.push(`♨️ **Mash:** ${m['temperatura_c'] ?? ''}°C per ${m['durata_min'] ?? ''}min`);
-        lines.push('');
-      }
-      const ferment = data['fermentazione'];
-      if (ferment && typeof ferment === 'object') {
-        const f = ferment as Record<string, unknown>;
-        lines.push(`🍺 **Fermentazione:** ${f['temperatura_c'] ?? ''}°C, ${f['primaria_giorni'] ?? ''} giorni`);
-        lines.push('');
-      }
+  const d = r.data;
+  const desc = d['descrizione'];
+  if (typeof desc === 'string') lines.push(`📝 ${desc}`, '');
+
+  const grist = d['grist'];
+  if (Array.isArray(grist)) {
+    lines.push('🌾 **Grist:**');
+    for (const g of grist as Array<Record<string, unknown>>) {
+      lines.push(`  - ${g['malto']} ${g['kg']}kg${g['percent'] ? ` (${g['percent']}%)` : ''}`);
     }
-  } catch {
-    // ignore read errors in detail mode
+    lines.push('');
   }
+
+  const hops = d['luppolatura'];
+  if (Array.isArray(hops)) {
+    lines.push('🌿 **Luppolatura:**');
+    for (const h of hops as Array<Record<string, unknown>>) {
+      lines.push(`  - ${h['varieta']} ${h['grammi']}g @ ${h['tempo_min']}min (${h['uso']})`);
+    }
+    lines.push('');
+  }
+
+  const yeast = d['lievito'];
+  if (yeast && typeof yeast === 'object') {
+    const y = yeast as Record<string, unknown>;
+    lines.push(`🧫 **Lievito:** ${y['ceppo'] ?? ''}${y['forma'] ? ` (${y['forma']})` : ''}`);
+    lines.push('');
+  }
+
+  const mash = d['mash'];
+  if (mash && typeof mash === 'object') {
+    const m = mash as Record<string, unknown>;
+    lines.push(`♨️ **Mash:** ${m['temperatura_c'] ?? ''}°C per ${m['durata_min'] ?? ''}min`);
+    lines.push('');
+  }
+
+  const ferment = d['fermentazione'];
+  if (ferment && typeof ferment === 'object') {
+    const f = ferment as Record<string, unknown>;
+    lines.push(`🍺 **Fermentazione:** ${f['temperatura_c'] ?? ''}°C, ${f['primaria_giorni'] ?? ''} giorni`);
+    lines.push('');
+  }
+
   return lines.join('\n');
 }
 
@@ -229,13 +187,12 @@ export class ReferenceRecipeSearchTool implements BuiltinTool<ReferenceRecipeSea
 
   private execute(args: ReferenceRecipeSearchInput): Promise<ExecutableToolResult> {
     try {
-      const files = scanRecipeFiles(RECIPES_ROOT);
-      const recipes = files
-        .map(f => parseReferenceRecipe(f))
+      const recipes = getAllReferenceRecipes()
+        .map(r => parseReferenceRecipe(r))
         .filter((r): r is ReferenceRecipeSummary => r !== null);
 
       if (recipes.length === 0) {
-        return Promise.resolve({ output: `Nessuna ricetta di riferimento trovata in \`${RECIPES_ROOT}\`.` });
+        return Promise.resolve({ output: 'Nessuna ricetta di riferimento trovata nella libreria.' });
       }
 
       const filtered = recipes.filter(r => recipeMatches(r, args.stile, args.categoria));
