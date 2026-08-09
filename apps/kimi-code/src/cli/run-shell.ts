@@ -110,6 +110,7 @@ export async function runShell(
     startupNotice: configWarning,
     migrationPlan,
     migrateOnly: runOptions.migrateOnly,
+    agentProfile: config.defaultAgentProfile,
   });
 
   initializeCliTelemetry({

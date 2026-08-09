@@ -102,7 +102,10 @@ useDialogFocus(dialogRef);
 function handleKeydown(e: KeyboardEvent): void {
   if (e.key === 'Escape') emit('close');
 }
-onMounted(() => document.addEventListener('keydown', handleKeydown));
+onMounted(() => {
+  document.addEventListener('keydown', handleKeydown);
+  void loadAgentProfiles();
+});
 onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 
 function exportLog(): void {
@@ -176,6 +179,22 @@ function configBool(value: boolean | undefined): boolean {
 function setDefaultModel(value: string): void {
   if (!value || value === props.config?.defaultModel) return;
   emit('updateConfig', { defaultModel: value });
+}
+
+const agentProfiles = ref<{ name: string; description?: string }[]>([]);
+
+function setDefaultAgent(value: string): void {
+  if (!value || value === props.config?.defaultAgentProfile) return;
+  emit('updateConfig', { defaultAgentProfile: value });
+}
+
+async function loadAgentProfiles(): Promise<void> {
+  try {
+    agentProfiles.value = await useKimiWebClient().listAgentProfiles();
+  } catch {
+    // Daemon may not expose the endpoint; leave the list empty (fall back to a
+    // free-text value showing the current default).
+  }
 }
 
 function setDefaultPermissionMode(mode: 'manual' | 'auto' | 'yolo'): void {
@@ -496,6 +515,26 @@ function archiveTime(iso: string): string {
                   </Select>
                 </div>
                 <span v-else class="rvalue mono">{{ config.defaultModel ?? t('settings.noDefaultModel') }}</span>
+              </div>
+
+              <div class="row">
+                <span class="rlabel">
+                  {{ t('settings.defaultAgent') }}
+                  <span class="hint">{{ t('settings.defaultAgentHint') }}</span>
+                </span>
+                <div v-if="agentProfiles.length > 0" class="select-wrap">
+                  <Select
+                    :model-value="config.defaultAgentProfile ?? 'agent'"
+                    :disabled="configSaving"
+                    :aria-label="t('settings.defaultAgent')"
+                    @update:model-value="setDefaultAgent"
+                  >
+                    <option v-for="agent in agentProfiles" :key="agent.name" :value="agent.name">
+                      {{ agent.name }}{{ agent.description ? ` — ${agent.description}` : '' }}
+                    </option>
+                  </Select>
+                </div>
+                <span v-else class="rvalue mono">{{ config.defaultAgentProfile ?? 'agent' }}</span>
               </div>
 
               <div class="row">

@@ -657,10 +657,18 @@ export interface AppConfigProvider {
   hasApiKey: boolean;
 }
 
+/** An available agent profile, as returned by the daemon. */
+export interface AppAgentProfile {
+  name: string;
+  description?: string;
+  whenToUse?: string;
+}
+
 export interface AppConfig {
   providers: Record<string, AppConfigProvider>;
   defaultProvider?: string;
   defaultModel?: string;
+  defaultAgentProfile?: string;
   models?: Record<string, unknown>;
   thinking?: { enabled?: boolean; effort?: string };
   planMode?: boolean;
@@ -785,6 +793,8 @@ export interface KimiWebApi {
   // Config — REAL endpoints
   getConfig(): Promise<AppConfig>;
   setConfig(patch: Partial<AppConfig>): Promise<AppConfig>;
+  /** List the available agent profiles (name + description) — GET /agent-profiles. */
+  listAgentProfiles(): Promise<AppAgentProfile[]>;
 
   // Auth — REAL endpoints
   getAuth(): Promise<{

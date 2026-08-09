@@ -185,6 +185,13 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: 'always',
   },
   {
+    name: 'agent',
+    aliases: ['profile'],
+    description: 'Switch agent profile',
+    priority: 100,
+    availability: 'always',
+  },
+  {
     name: 'effort',
     aliases: ['thinking'],
     description: 'Switch thinking effort',

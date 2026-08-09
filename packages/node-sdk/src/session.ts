@@ -7,7 +7,7 @@ import {
 } from '@moonshot-ai/agent-core';
 
 import { type ApprovalHandler, type Event, type QuestionHandler } from '#/events';
-import type { SDKRpcClientBase } from '#/rpc';
+import type { SDKRpcClientBase, AgentProfileInfo, SetSessionProfileRpcResult } from '#/rpc';
 import type {
   AddAdditionalDirOptions,
   AddAdditionalDirResult,
@@ -205,6 +205,23 @@ export class Session {
       ErrorCodes.SESSION_THINKING_EMPTY,
     );
     await this.rpc.setThinking({ sessionId: this.id, effort: normalized });
+  }
+
+  /** Switches the active agent profile, applying it to the next turn. */
+  async setProfile(profile: string): Promise<SetSessionProfileRpcResult> {
+    this.ensureOpen();
+    const normalized = normalizeRequiredString(
+      profile,
+      'Session profile cannot be empty',
+      ErrorCodes.SESSION_PROFILE_EMPTY,
+    );
+    return this.rpc.setProfile({ sessionId: this.id, profile: normalized });
+  }
+
+  /** Lists the available agent profiles (name, description, whenToUse). */
+  async listAgentProfiles(): Promise<readonly AgentProfileInfo[]> {
+    this.ensureOpen();
+    return this.rpc.listProfiles({ sessionId: this.id });
   }
 
   async setPermission(mode: PermissionMode): Promise<void> {

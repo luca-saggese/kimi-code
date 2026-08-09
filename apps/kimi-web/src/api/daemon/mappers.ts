@@ -764,6 +764,7 @@ export function toAppConfig(wire: WireConfig): AppConfig {
     providers,
     defaultProvider: wire.default_provider,
     defaultModel: wire.default_model,
+    defaultAgentProfile: wire.default_agent_profile,
     models: wire.models,
     thinking: wire.thinking as { enabled?: boolean; effort?: string } | undefined,
     planMode: wire.plan_mode,

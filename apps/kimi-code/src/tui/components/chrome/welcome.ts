@@ -80,6 +80,7 @@ export class WelcomeComponent implements Component {
       labelStyle('Directory: ') + this.state.workDir,
       labelStyle('Session:   ') + this.state.sessionId,
       labelStyle('Model:     ') + modelValue,
+      labelStyle('Agent:     ') + (this.state.agentProfile ?? 'agent'),
       labelStyle('Version:   ') + this.state.version,
     ];
 

@@ -55,6 +55,9 @@ export interface AppState {
   availableModels: Record<string, ModelAlias>;
   availableProviders: Record<string, ProviderConfig>;
   sessionTitle: string | null;
+  /** Name of the active agent profile (e.g. 'agent', 'coder', 'explore',
+   *  'brassicolo'); undefined when the runtime hasn't reported one yet. */
+  agentProfile?: string;
   /** Current goal snapshot for the footer badge; null/undefined when no active goal. */
   goal?: GoalSnapshot | null;
   mcpServersSummary: string | null;

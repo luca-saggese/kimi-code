@@ -31,6 +31,8 @@ export default {
   defaultModel: '默认模型',
   defaultModelHint: '新会话会优先使用这个模型',
   noDefaultModel: '未设置默认模型',
+  defaultAgent: '默认 Agent',
+  defaultAgentHint: '新建会话使用的 Agent 配置',
   defaultPermission: '默认权限',
   defaultPermissionHint: '只影响之后新建的会话',
   defaultThinking: '默认开启思考',

@@ -6,7 +6,7 @@ import type { SessionWarning } from '@moonshot-ai/protocol';
 import { ErrorCodes, KimiError } from '#/errors';
 import { getRootLogger, log } from '#/logging/logger';
 import type { Logger, SessionLogHandle } from '#/logging/types';
-import type { KimiConfig, SDKSessionRPC } from '#/rpc';
+import type { AgentProfileInfo, KimiConfig, SDKSessionRPC, SetProfileResult } from '#/rpc';
 import { proxyWithExtraPayload } from '#/rpc/types';
 
 import { Agent, type AgentOptions, type AgentType } from '../agent';
@@ -682,6 +682,37 @@ export class Session {
         code: 'agents-md-oversized',
       });
     }
+  }
+
+  /**
+   * Switches the active agent to a named profile, applying it immediately (the
+   * new system prompt and active-tool set take effect on the next turn).
+   * Throws when the profile is unknown; returns `{ set: false }` when the agent
+   * is already running that profile.
+   */
+  async setProfile(profileName: string, agentId = 'main'): Promise<SetProfileResult> {
+    const profile = DEFAULT_AGENT_PROFILES[profileName];
+    const agent = await this.ensureAgentResumed(agentId);
+    if (profile === undefined) {
+      throw new KimiError(
+        ErrorCodes.AGENT_PROFILE_NOT_FOUND,
+        `Unknown agent profile: "${profileName}"`,
+      );
+    }
+    if (agent.config.profileName === profileName) {
+      return { name: profile.name, description: profile.description, whenToUse: profile.whenToUse, set: false };
+    }
+    await this.bootstrapAgentProfile(agent, profile);
+    return { name: profile.name, description: profile.description, whenToUse: profile.whenToUse, set: true };
+  }
+
+  /** Lists the available agent profiles (name, description, whenToUse). */
+  listProfiles(_agentId = 'main'): readonly AgentProfileInfo[] {
+    return Object.values(DEFAULT_AGENT_PROFILES).map((profile) => ({
+      name: profile.name,
+      description: profile.description,
+      whenToUse: profile.whenToUse,
+    }));
   }
 
   async getSessionWarnings(): Promise<readonly SessionWarning[]> {

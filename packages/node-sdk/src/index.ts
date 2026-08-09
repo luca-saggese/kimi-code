@@ -13,6 +13,7 @@ export {
   type ValidateKimiConfigTomlInput,
 } from '#/config-rpc';
 export { SDKRpcClientBase } from '#/rpc';
+export type { AgentProfileInfo, SetSessionProfileRpcResult } from '#/rpc';
 export { KimiForCodingProvider } from '#/kimi-code-model-provider';
 export type { KimiForCodingProviderOptions } from '#/kimi-code-model-provider';
 

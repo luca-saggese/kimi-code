@@ -26,12 +26,14 @@ export const ErrorCodes = {
   SESSION_PERMISSION_MODE_INVALID: 'session.permission_mode_invalid',
   SESSION_THINKING_EMPTY: 'session.thinking_empty',
   SESSION_MODEL_EMPTY: 'session.model_empty',
+  SESSION_PROFILE_EMPTY: 'session.profile_empty',
   SESSION_PLAN_MODE_INVALID: 'session.plan_mode_invalid',
   SESSION_APPROVAL_HANDLER_ERROR: 'session.approval_handler_error',
   SESSION_QUESTION_HANDLER_ERROR: 'session.question_handler_error',
   SESSION_INIT_FAILED: 'session.init_failed',
 
   AGENT_NOT_FOUND: 'agent.not_found',
+  AGENT_PROFILE_NOT_FOUND: 'agent.profile_not_found',
   TURN_AGENT_BUSY: 'turn.agent_busy',
 
   GOAL_ALREADY_EXISTS: 'goal.already_exists',
@@ -192,6 +194,12 @@ export const KIMI_ERROR_INFO = {
     public: true,
     action: 'Provide a non-empty model identifier.',
   },
+  'session.profile_empty': {
+    title: 'Profile is empty',
+    retryable: false,
+    public: true,
+    action: 'Provide a non-empty agent profile name.',
+  },
   'session.plan_mode_invalid': {
     title: 'Invalid plan mode',
     retryable: false,
@@ -222,6 +230,12 @@ export const KIMI_ERROR_INFO = {
     retryable: false,
     public: true,
     action: 'Check the agent id or list available agents.',
+  },
+  'agent.profile_not_found': {
+    title: 'Agent profile not found',
+    retryable: false,
+    public: true,
+    action: 'List available profiles or use a valid agent profile name.',
   },
   'turn.agent_busy': {
     title: 'Agent is busy',

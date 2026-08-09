@@ -6,6 +6,7 @@ import type {
   AddAdditionalDirPayload,
   AddAdditionalDirResult,
   AgentAPI,
+  AgentProfileInfo,
   BeginCompactionPayload,
   CancelPayload,
   CancelPlanPayload,
@@ -28,6 +29,8 @@ import type {
   SetActiveToolsPayload,
   SetModelPayload,
   SetPermissionPayload,
+  SetProfilePayload,
+  SetProfileResult,
   SetThinkingPayload,
   SkillSummary,
   PluginCommandDef,
@@ -150,6 +153,14 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
 
   async setModel({ agentId, ...payload }: AgentScopedPayload<SetModelPayload>) {
     return (await this.getAgent(agentId)).setModel(payload);
+  }
+
+  async setProfile(payload: SetProfilePayload): Promise<SetProfileResult> {
+    return this.session.setProfile(payload.profile);
+  }
+
+  listProfiles(_payload: EmptyPayload): readonly AgentProfileInfo[] {
+    return this.session.listProfiles();
   }
 
   async setThinking({ agentId, ...payload }: AgentScopedPayload<SetThinkingPayload>) {

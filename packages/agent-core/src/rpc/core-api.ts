@@ -227,6 +227,17 @@ export interface SetModelResult {
   readonly model: string;
   readonly providerName?: string | undefined;
 }
+export interface SetProfilePayload {
+  readonly profile: string;
+}
+export interface AgentProfileInfo {
+  readonly name: string;
+  readonly description?: string | undefined;
+  readonly whenToUse?: string | undefined;
+}
+export interface SetProfileResult extends AgentProfileInfo {
+  readonly set: boolean;
+}
 export interface CancelPlanPayload {
   readonly id?: string;
 }
@@ -501,6 +512,8 @@ export interface SessionAPI extends AgentAPIWithId {
   waitForBackgroundTasksOnPrint: (payload: EmptyPayload) => void;
   handlePrintMainTurnCompleted: (payload: EmptyPayload) => 'finish' | 'continue';
   addAdditionalDir: (payload: AddAdditionalDirPayload) => AddAdditionalDirResult;
+  setProfile: (payload: SetProfilePayload) => Promise<SetProfileResult>;
+  listProfiles: (payload: EmptyPayload) => readonly AgentProfileInfo[];
 }
 
 type SessionAPIWithId = WithSessionId<SessionAPI>;

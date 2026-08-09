@@ -73,6 +73,7 @@ import type {
   ActivatePluginCommandPayload,
   AddAdditionalDirPayload,
   AddAdditionalDirResult,
+  AgentProfileInfo,
   ArchiveSessionPayload,
   BeginGlobalMcpServerAuthResult,
   BeginCompactionPayload,
@@ -132,6 +133,8 @@ import type {
   SetPermissionPayload,
   SetPluginEnabledPayload,
   SetPluginMcpServerEnabledPayload,
+  SetProfilePayload,
+  SetProfileResult,
   SetThinkingPayload,
   SkillSummary,
   PluginCommandDef,
@@ -1025,6 +1028,14 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
     ...payload
   }: SessionScopedPayload<AddAdditionalDirPayload>): Promise<AddAdditionalDirResult> {
     return this.requireSession(sessionId).addAdditionalDir(payload.path, payload.persist);
+  }
+
+  setProfile({ sessionId, ...payload }: SessionScopedPayload<SetProfilePayload>): Promise<SetProfileResult> {
+    return this.sessionApi(sessionId).setProfile(payload);
+  }
+
+  listProfiles({ sessionId, ...payload }: SessionScopedPayload<EmptyPayload>): readonly AgentProfileInfo[] {
+    return this.sessionApi(sessionId).listProfiles(payload);
   }
 
   startBtw({ sessionId, ...payload }: SessionAgentPayload<EmptyPayload>): Promise<string> {

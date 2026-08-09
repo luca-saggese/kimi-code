@@ -231,11 +231,13 @@ export type KimiErrorCode =
   | 'session.permission_mode_invalid'
   | 'session.thinking_empty'
   | 'session.model_empty'
+  | 'session.profile_empty'
   | 'session.plan_mode_invalid'
   | 'session.approval_handler_error'
   | 'session.question_handler_error'
   | 'session.init_failed'
   | 'agent.not_found'
+  | 'agent.profile_not_found'
   | 'turn.agent_busy'
   | 'goal.already_exists'
   | 'goal.not_found'
@@ -1147,11 +1149,13 @@ export const kimiErrorCodeSchema = z.enum([
   'session.permission_mode_invalid',
   'session.thinking_empty',
   'session.model_empty',
+  'session.profile_empty',
   'session.plan_mode_invalid',
   'session.approval_handler_error',
   'session.question_handler_error',
   'session.init_failed',
   'agent.not_found',
+  'agent.profile_not_found',
   'turn.agent_busy',
   'goal.already_exists',
   'goal.not_found',

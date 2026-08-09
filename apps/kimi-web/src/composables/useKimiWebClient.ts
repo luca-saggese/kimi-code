@@ -411,6 +411,7 @@ export interface ExtendedState extends KimiClientState {
   // Auth state (real daemon)
   authReady: boolean;
   defaultModel: string | null;
+  defaultAgentProfile: string | null;
   managedProviderStatus: string | null;
   // Workspace state
   workspaces: AppWorkspace[];
@@ -475,6 +476,7 @@ const rawState: ExtendedState = reactive({
   unreadBySession: loadUnread(),
   authReady: false,
   defaultModel: null,
+  defaultAgentProfile: null,
   managedProviderStatus: null,
   workspaces: [],
   activeWorkspaceId: loadActiveWorkspaceFromStorage(),
@@ -905,6 +907,7 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
 
   if (event.type === 'configChanged') {
     rawState.defaultModel = event.config.defaultModel ?? null;
+    rawState.defaultAgentProfile = event.config.defaultAgentProfile ?? null;
   }
 
   if (event.type === 'modelCatalogChanged') {
@@ -2318,6 +2321,7 @@ const sessionCost = computed<number>(() => {
 
 const authReady = computed<boolean>(() => rawState.authReady);
 const defaultModel = computed<string | null>(() => rawState.defaultModel);
+const defaultAgentProfile = computed<string | null>(() => rawState.defaultAgentProfile);
 const managedProviderStatus = computed<string | null>(() => rawState.managedProviderStatus);
 const config = computed<AppConfig | null>(() => rawState.config);
 
@@ -3005,11 +3009,14 @@ export function useKimiWebClient() {
     // Auth state
     authReady,
     defaultModel,
+    defaultAgentProfile,
     managedProviderStatus,
 
     // Config state + actions
     config,
     updateConfig: workspaceState.updateConfig,
+    /** List the available agent profiles (for the settings "Default agent" picker). */
+    listAgentProfiles: () => getKimiWebApi().listAgentProfiles(),
 
     // Auth actions
     checkAuth: workspaceState.checkAuth,

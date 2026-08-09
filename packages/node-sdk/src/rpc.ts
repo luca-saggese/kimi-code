@@ -90,6 +90,20 @@ export interface SetSessionModelRpcResult {
   readonly providerName?: string | undefined;
 }
 
+export interface SetSessionProfileRpcInput extends SessionIdRpcInput {
+  readonly profile: string;
+}
+
+export interface AgentProfileInfo {
+  readonly name: string;
+  readonly description?: string | undefined;
+  readonly whenToUse?: string | undefined;
+}
+
+export interface SetSessionProfileRpcResult extends AgentProfileInfo {
+  readonly set: boolean;
+}
+
 export interface SetSessionThinkingRpcInput extends SessionIdRpcInput {
   readonly effort: string;
 }
@@ -421,6 +435,21 @@ export abstract class SDKRpcClientBase {
       sessionId: input.sessionId,
       agentId: this.interactiveAgentId,
       effort: input.effort,
+    });
+  }
+
+  async setProfile(input: SetSessionProfileRpcInput): Promise<SetSessionProfileRpcResult> {
+    const rpc = await this.getRpc();
+    return rpc.setProfile({
+      sessionId: input.sessionId,
+      profile: input.profile,
+    });
+  }
+
+  async listProfiles(input: SessionIdRpcInput): Promise<readonly AgentProfileInfo[]> {
+    const rpc = await this.getRpc();
+    return rpc.listProfiles({
+      sessionId: input.sessionId,
     });
   }
 

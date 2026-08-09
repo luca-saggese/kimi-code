@@ -31,6 +31,8 @@ export default {
   defaultModel: 'Default model',
   defaultModelHint: 'New sessions prefer this model',
   noDefaultModel: 'No default model',
+  defaultAgent: 'Default agent',
+  defaultAgentHint: 'Agent profile used by new sessions',
   defaultPermission: 'Default permission',
   defaultPermissionHint: 'Only affects newly-created sessions',
   defaultThinking: 'Thinking by default',

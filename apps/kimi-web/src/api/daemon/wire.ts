@@ -404,6 +404,7 @@ export interface WireConfig {
   providers: Record<string, WireConfigProvider>;
   default_provider?: string;
   default_model?: string;
+  default_agent_profile?: string;
   models?: Record<string, unknown>;
   thinking?: unknown;
   plan_mode?: boolean;

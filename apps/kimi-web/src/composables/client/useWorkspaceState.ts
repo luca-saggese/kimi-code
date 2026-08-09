@@ -488,6 +488,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const next = await api.setConfig(patch);
       rawState.config = next;
       rawState.defaultModel = next.defaultModel ?? null;
+      rawState.defaultAgentProfile = next.defaultAgentProfile ?? null;
       return true;
     } catch (err) {
       pushOperationFailure('setConfig', err);

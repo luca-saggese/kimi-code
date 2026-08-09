@@ -176,6 +176,9 @@ export interface KimiTUIStartupInput {
   readonly migrationPlan?: MigrationPlan | null;
   /** When true, run only the migration screen, then exit (the `kimi migrate` command). */
   readonly migrateOnly?: boolean;
+  /** The configured default agent profile (e.g. 'agent', 'coder', ...) used by
+   *  the welcome panel before a session reports its live profile. */
+  readonly agentProfile?: string;
 }
 
 type EffectiveActivityPaneMode = ActivityPaneMode | 'idle' | 'session';
@@ -227,6 +230,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     availableModels: {},
     availableProviders: {},
     sessionTitle: null,
+    agentProfile: input.agentProfile ?? 'agent',
     goal: null,
     mcpServersSummary: null,
     banner: undefined,
@@ -1544,6 +1548,7 @@ export class KimiTUI {
       maxContextTokens: status.maxContextTokens,
       contextUsage: status.contextUsage,
       sessionTitle: session.summary?.title ?? null,
+      agentProfile: this.state.appState.agentProfile ?? 'agent',
       goal: goalResult.goal,
     });
     this.syncAdditionalDirs(session);

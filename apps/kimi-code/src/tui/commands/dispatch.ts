@@ -19,6 +19,7 @@ import type {
   TranscriptEntry,
 } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
+import { handleAgentCommand } from './agent';
 import { handleLoginCommand, handleLogoutCommand } from './auth';
 import { handleBtwCommand } from './btw';
 import { handleCopyCommand } from './copy';
@@ -64,6 +65,7 @@ export { handleLoginCommand, handleLogoutCommand } from './auth';
 export { handleBtwCommand } from './btw';
 export { handleCopyCommand } from './copy';
 export { handleAddDirCommand } from './add-dir';
+export { handleAgentCommand } from './agent';
 export {
   handleAutoCommand,
   handleCompactCommand,
@@ -302,6 +304,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'model':
       await handleModelCommand(host, args);
+      return;
+    case 'agent':
+      await handleAgentCommand(host, args);
       return;
     case 'effort':
       await handleEffortCommand(host, args);

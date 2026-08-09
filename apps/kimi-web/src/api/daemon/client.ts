@@ -5,6 +5,7 @@ import type { KimiApiConfig } from '../config';
 import { buildRestUrl, buildWsUrl } from '../config';
 import { traceKeyEvent } from '../../debug/trace';
 import type {
+  AppAgentProfile,
   AppConfig,
   AppGoal,
   AppMessage,
@@ -1264,6 +1265,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
       providers: 'providers',
       defaultProvider: 'default_provider',
       defaultModel: 'default_model',
+      defaultAgentProfile: 'default_agent_profile',
       models: 'models',
       thinking: 'thinking',
       planMode: 'plan_mode',
@@ -1289,6 +1291,15 @@ export class DaemonKimiWebApi implements KimiWebApi {
     }
     const data = await this.http.post<WireConfig>('/config', wirePatch);
     return toAppConfig(data);
+  }
+
+  async listAgentProfiles(): Promise<AppAgentProfile[]> {
+    const data = await this.http.get<{ profiles: Array<{ name: string; description?: string; when_to_use?: string }> }>('/agent-profiles');
+    return data.profiles.map((profile) => ({
+      name: profile.name,
+      description: profile.description,
+      whenToUse: profile.when_to_use,
+    }));
   }
 
   // -------------------------------------------------------------------------
