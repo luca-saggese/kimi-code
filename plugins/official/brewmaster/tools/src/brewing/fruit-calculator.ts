@@ -14,8 +14,8 @@
 
 import { z } from 'zod';
 
-import type { BuiltinTool, ToolExecution } from '#/tool/toolContract';
-import { registerTool } from '#/agent/toolRegistry/toolContribution';
+import type { BuiltinTool, ToolExecution } from '../shim/tool-contract';
+import { registerTool } from '../shim/tool-registry';
 
 // ── Fruit database ───────────────────────────────────────────────────────────
 

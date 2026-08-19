@@ -30,9 +30,9 @@ import {
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 
-import type { BuiltinTool, ToolExecution, ExecutableToolResult } from '#/tool/toolContract';
-import { registerTool } from '#/agent/toolRegistry/toolContribution';
-import { toInputJsonSchema } from '#/tool/input-schema';
+import type { BuiltinTool, ToolExecution, ExecutableToolResult } from '../shim/tool-contract';
+import { registerTool } from '../shim/tool-registry';
+import { toInputJsonSchema } from '../shim/input-schema';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

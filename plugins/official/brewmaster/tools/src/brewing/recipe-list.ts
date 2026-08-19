@@ -11,9 +11,9 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import * as yaml from 'js-yaml';
 
-import type { BuiltinTool, ToolExecution, ExecutableToolResult } from '#/tool/toolContract';
-import { registerTool } from '#/agent/toolRegistry/toolContribution';
-import { toInputJsonSchema } from '#/tool/input-schema';
+import type { BuiltinTool, ToolExecution, ExecutableToolResult } from '../shim/tool-contract';
+import { registerTool } from '../shim/tool-registry';
+import { toInputJsonSchema } from '../shim/input-schema';
 
 export const RecipeListInputSchema = z.object({
   search_dir: z.string().optional().describe('Directory to scan. Defaults to the current workspace directory. Use ~ to refer to home directory.'),

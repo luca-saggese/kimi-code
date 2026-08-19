@@ -20,9 +20,9 @@
 
 import { z } from 'zod';
 
-import type { BuiltinTool, ToolExecution } from '#/tool/toolContract';
-import { registerTool } from '#/agent/toolRegistry/toolContribution';
-import { toInputJsonSchema } from '#/tool/input-schema';
+import type { BuiltinTool, ToolExecution } from '../shim/tool-contract';
+import { registerTool } from '../shim/tool-registry';
+import { toInputJsonSchema } from '../shim/input-schema';
 
 // ── Categories ───────────────────────────────────────────────────────────────
 

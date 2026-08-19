@@ -5,7 +5,7 @@
  * Lets users override the default agent profile via `~/.kimi-code/config.toml`:
  *
  * ```toml
- * defaultAgentProfile = "brassicolo"
+ * defaultAgentProfile = "coder"
  * ```
  *
  * When absent, the hardcoded `DEFAULT_AGENT_PROFILE_NAME` (`agent`) is used.

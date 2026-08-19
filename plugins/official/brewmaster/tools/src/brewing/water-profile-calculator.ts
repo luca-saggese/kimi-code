@@ -4,9 +4,9 @@
 
 import { z } from 'zod';
 
-import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
-import { registerTool } from '#/agent/toolRegistry/toolContribution';
-import { toInputJsonSchema } from '#/tool/input-schema';
+import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '../shim/tool-contract';
+import { registerTool } from '../shim/tool-registry';
+import { toInputJsonSchema } from '../shim/input-schema';
 
 // ── Salt contributions: mg/L per g/L of salt added ──────────────────────
 // Dihydrate forms: CaSO₄·2H₂O, CaCl₂·2H₂O, MgSO₄·7H₂O

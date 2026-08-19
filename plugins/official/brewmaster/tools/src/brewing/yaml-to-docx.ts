@@ -7,9 +7,9 @@ import { z } from 'zod';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import * as yaml from 'js-yaml';
 
-import type { BuiltinTool, ToolExecution } from '#/tool/toolContract';
-import { registerTool } from '#/agent/toolRegistry/toolContribution';
-import { toInputJsonSchema } from '#/tool/input-schema';
+import type { BuiltinTool, ToolExecution } from '../shim/tool-contract';
+import { registerTool } from '../shim/tool-registry';
+import { toInputJsonSchema } from '../shim/input-schema';
 
 export const YamlToDocxInputSchema = z.object({
   input_file: z.string().describe('Path to the recipe YAML file.'),
@@ -27,9 +27,36 @@ function escapeXml(text: string): string {
     .replace(/'/g, '&apos;');
 }
 
+function formatValue(value: unknown): string {
+  if (value == null) return '-';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '-';
+    return value
+      .map((item) => {
+        if (typeof item === 'object' && item !== null) {
+          return Object.entries(item as Record<string, unknown>)
+            .map(([k, v]) => `${k}: ${formatValue(v)}`)
+            .join(', ');
+        }
+        return formatValue(item);
+      })
+      .join('; ');
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return '-';
+    return entries
+      .map(([k, v]) => `${k}: ${formatValue(v)}`)
+      .join(', ');
+  }
+  return String(value);
+}
+
 function yamlToDocx(inputPath: string, outputPath: string): string {
   const raw = readFileSync(inputPath, 'utf-8');
-  const data: Record<string, unknown> = yaml.load(raw);
+  const data: Record<string, unknown> = (yaml.load(raw) ?? {}) as Record<string, unknown>;
 
   // Build document.xml
   let body = '';
@@ -51,7 +78,7 @@ function yamlToDocx(inputPath: string, outputPath: string): string {
   }
 
   function kv(label: string, value: unknown): void {
-    body += `<w:p><w:r><w:rPr><w:b/><w:sz w:val="21"/></w:rPr><w:t xml:space="preserve">${escapeXml(label)}: </w:t></w:r><w:r><w:rPr><w:sz w:val="21"/></w:rPr><w:t xml:space="preserve">${escapeXml(value != null ? String(value) : '-')}</w:t></w:r></w:p>`;
+    body += `<w:p><w:r><w:rPr><w:b/><w:sz w:val="21"/></w:rPr><w:t xml:space="preserve">${escapeXml(label)}: </w:t></w:r><w:r><w:rPr><w:sz w:val="21"/></w:rPr><w:t xml:space="preserve">${escapeXml(formatValue(value))}</w:t></w:r></w:p>`;
   }
 
   function simpleTable(header: string[], rows: string[][]): void {

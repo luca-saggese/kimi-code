@@ -6,9 +6,9 @@
 
 import { z } from 'zod';
 
-import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
-import { registerTool } from '#/agent/toolRegistry/toolContribution';
-import { toInputJsonSchema } from '#/tool/input-schema';
+import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '../shim/tool-contract';
+import { registerTool } from '../shim/tool-registry';
+import { toInputJsonSchema } from '../shim/input-schema';
 
 export const IbuCalculatorInputSchema = z.object({
   model: z.enum(['tinseth', 'rager']).default('tinseth'),

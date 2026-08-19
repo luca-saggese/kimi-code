@@ -1,16 +1,17 @@
 /**
  * YAML to PDF converter — converts a beer recipe YAML to a styled PDF.
- * Uses pdfkit (Node.js, no external deps beyond pdfkit + js-yaml).
+ * Uses the dependency-free `PDFLite` shim (see ../shim/pdf-lite.ts) instead of
+ * pdfkit, so the MCP server can ship as a single bundled file.
  */
 
 import { z } from 'zod';
-import { readFileSync, existsSync, createWriteStream } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import * as yaml from 'js-yaml';
-import PDFDocument from 'pdfkit';
 
-import type { BuiltinTool, ToolExecution } from '#/tool/toolContract';
-import { registerTool } from '#/agent/toolRegistry/toolContribution';
-import { toInputJsonSchema } from '#/tool/input-schema';
+import type { BuiltinTool, ToolExecution } from '../shim/tool-contract';
+import { registerTool } from '../shim/tool-registry';
+import { toInputJsonSchema } from '../shim/input-schema';
+import { PDFLite } from '../shim/pdf-lite';
 
 export const YamlToPdfInputSchema = z.object({
   input_file: z.string().describe('Path to the recipe YAML file.'),
@@ -30,11 +31,9 @@ const COLOR_MUTED = '#7f8c8d';
 
 function yamlToPdf(inputPath: string, outputPath: string): string {
   const raw = readFileSync(inputPath, 'utf-8');
-  const data: Record<string, unknown> = yaml.load(raw);
+  const data: Record<string, unknown> = (yaml.load(raw) ?? {}) as Record<string, unknown>;
 
-  const doc = new PDFDocument({ size: 'A4', margins: { top: 50, bottom: 50, left: 50, right: 50 } });
-  const stream = createWriteStream(outputPath);
-  doc.pipe(stream);
+  const doc = new PDFLite({ size: 'A4', margins: { top: 50, bottom: 50, left: 50, right: 50 } });
 
   let y = doc.y;
 
@@ -65,6 +64,33 @@ function yamlToPdf(inputPath: string, outputPath: string): string {
       .text(title, MARGIN, sy);
     doc.moveTo(MARGIN, doc.y + 3).lineTo(PAGE_W - MARGIN, doc.y + 3).strokeColor(COLOR_PRIMARY).lineWidth(1.5).stroke();
     return doc.y + 9;
+  }
+
+  function formatValue(value: unknown, indent = 0): string {
+    if (value == null) return '-';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    if (Array.isArray(value)) {
+      if (value.length === 0) return '-';
+      return value
+        .map((item) => {
+          if (typeof item === 'object' && item !== null) {
+            return Object.entries(item as Record<string, unknown>)
+              .map(([k, v]) => `${k}: ${formatValue(v, indent + 1)}`)
+              .join(', ');
+          }
+          return formatValue(item, indent + 1);
+        })
+        .join('; ');
+    }
+    if (typeof value === 'object') {
+      const entries = Object.entries(value as Record<string, unknown>);
+      if (entries.length === 0) return '-';
+      return entries
+        .map(([k, v]) => `${k}: ${formatValue(v, indent + 1)}`)
+        .join(', ');
+    }
+    return String(value);
   }
 
   function kv(label: string, value: string): number {
@@ -115,7 +141,7 @@ function yamlToPdf(inputPath: string, outputPath: string): string {
     y = section('Parametri');
     for (const [k, v] of Object.entries(params)) {
       const label = k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-      y = kv(label, v != null ? String(v) : '-');
+      y = kv(label, formatValue(v));
     }
     y += 6;
   }
@@ -141,7 +167,7 @@ function yamlToPdf(inputPath: string, outputPath: string): string {
       doc.y = section(sec.charAt(0).toUpperCase() + sec.slice(1));
       for (const [k, v] of Object.entries(obj)) {
         const label = k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-        y = kv(label, v != null ? String(v) : '-');
+        y = kv(label, formatValue(v));
       }
       y += 4;
     }
@@ -190,7 +216,7 @@ function yamlToPdf(inputPath: string, outputPath: string): string {
   doc.font('Helvetica-Oblique').fontSize(8).fillColor(COLOR_MUTED)
     .text('Generato da Maestra Birraia AI — Kimi Code Brewing Assistant', MARGIN, doc.y, { align: 'center' });
 
-  doc.end();
+  doc.save(outputPath);
   return outputPath;
 }
 

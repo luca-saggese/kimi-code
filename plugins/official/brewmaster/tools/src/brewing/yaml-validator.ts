@@ -8,9 +8,9 @@ import { z } from 'zod';
 import { readFileSync, existsSync } from 'node:fs';
 import * as yaml from 'js-yaml';
 
-import type { BuiltinTool, ToolExecution, ExecutableToolResult } from '#/tool/toolContract';
-import { registerTool } from '#/agent/toolRegistry/toolContribution';
-import { toInputJsonSchema } from '#/tool/input-schema';
+import type { BuiltinTool, ToolExecution, ExecutableToolResult } from '../shim/tool-contract';
+import { registerTool } from '../shim/tool-registry';
+import { toInputJsonSchema } from '../shim/input-schema';
 
 export const YamlValidatorInputSchema = z.object({
   input_file: z.string().describe('Path to the recipe YAML file.'),
