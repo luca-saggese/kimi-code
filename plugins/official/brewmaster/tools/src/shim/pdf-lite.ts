@@ -53,11 +53,42 @@ function hexToRgb(color: string): [number, number, number] {
   return [r, g, b];
 }
 
+// Map common Unicode punctuation/symbols to their WinAnsiEncoding (CP1252)
+// byte values. The PDF fonts are declared with /WinAnsiEncoding, which covers
+// these even though they are not in ISO-8859-1.
+const CP1252_MAP: Record<number, number> = {
+  0x2018: 0x91, // ‘
+  0x2019: 0x92, // ’
+  0x201c: 0x93, // “
+  0x201d: 0x94, // ”
+  0x2022: 0x95, // •
+  0x2013: 0x96, // –
+  0x2014: 0x97, // —
+  0x2122: 0x99, // ™
+  0x2020: 0x86, // †
+  0x2021: 0x87, // ‡
+  0x2026: 0x85, // …
+  0x2030: 0x89, // ‰
+  0x0152: 0x8c, // Œ
+  0x0153: 0x9c, // œ
+  0x0160: 0x8a, // Š
+  0x0161: 0x9a, // š
+  0x0178: 0x9f, // Ÿ
+  0x017d: 0x8e, // Ž
+  0x017e: 0x9e, // ž
+};
+
 function toLatin1(str: string): string {
   let out = '';
   for (const ch of str) {
     const code = ch.codePointAt(0) ?? 63;
-    out += code <= 255 ? String.fromCharCode(code) : '?';
+    if (code <= 255) {
+      out += String.fromCharCode(code);
+    } else if (CP1252_MAP[code] !== undefined) {
+      out += String.fromCharCode(CP1252_MAP[code]!);
+    } else {
+      out += '?';
+    }
   }
   return out;
 }
