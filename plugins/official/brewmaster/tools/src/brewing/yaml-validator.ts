@@ -195,14 +195,35 @@ function findStyle(q: string): BjcpStyle | undefined {
     // Also try matching just the code part (e.g., "IPA" → 21A)
     if (s.code.toLowerCase() === lq) return s;
   }
+  // Try extracting a BJCP code from a prefixed label like "BJCP 25C — Saison"
+  const codeMatch = q.match(/\bBJCP\s+([0-9]+[A-Za-z]?)\b/i);
+  if (codeMatch) {
+    const code = codeMatch[1].toUpperCase();
+    if (BJCP[code]) return BJCP[code];
+  }
+  // Try matching the first token that looks like a BJCP code (e.g. "25C")
+  const bareCode = q.match(/\b([0-9]{1,2}[A-Z][0-9]?)\b/i);
+  if (bareCode) {
+    const code = bareCode[1].toUpperCase();
+    if (BJCP[code]) return BJCP[code];
+  }
   return undefined;
 }
 
 function findAllStyles(query: string): BjcpStyle[] {
   const lq = query.toLowerCase();
-  return Object.values(BJCP).filter(
+  const matches = Object.values(BJCP).filter(
     s => s.name.toLowerCase().includes(lq) || s.code.toLowerCase().includes(lq),
   );
+  if (matches.length > 0) return matches;
+  // Fall back to the extracted BJCP code if present
+  const m = query.match(/\bBJ\s+([0-9A-Z]+)\b/i) ?? query.match(/\b([0-9]{1,2}[A-Z][0-9]?)\b/i);
+  if (m) {
+    const code = m[1].toUpperCase();
+    const s = BJCP[code];
+    if (s) return [s];
+  }
+  return [];
 }
 
 // ============================================================================

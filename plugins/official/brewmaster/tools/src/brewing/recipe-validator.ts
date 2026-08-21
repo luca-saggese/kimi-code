@@ -172,6 +172,12 @@ function findStyle(q: string): BjcpStyle | undefined {
   if (BJCP[q]) return BJCP[q];
   const lq = q.toLowerCase();
   for (const s of Object.values(BJCP)) if (s.name.toLowerCase().includes(lq)) return s;
+  // Extract a BJCP code from a prefixed label like "BJCP 25C — Saison (...)"
+  const m = q.match(/\bBJ\s+([0-9A-Z]+)\b/i) ?? q.match(/\b([0-9]{1,2}[A-Z][0-9]?)\b/i);
+  if (m) {
+    const code = m[1].toUpperCase();
+    if (BJCP[code]) return BJCP[code];
+  }
   return undefined;
 }
 
