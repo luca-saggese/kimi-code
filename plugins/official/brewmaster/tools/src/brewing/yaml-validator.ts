@@ -255,8 +255,38 @@ interface ParsedRecipe {
 }
 
 const VALID_HOP_USES = new Set(['boil', 'whirlpool', 'dry_hop', 'first_wort', 'mash', 'hopback', 'dip_hop', 'hop_stand']);
+// ── Helpers de lectura tolerante a variantes de nombre de campo ──
+// Muchas recetas usan nombres de campo distintos (es. `mash.acqua_strike_litri`
+// vs `agua.mash_litri`, `bollitura.durata_min` vs `parametri.bollitura_min`).
+// Estos helpers buscan el primer valor no nulo entre varias claves alternativas.
 
-function parseYamlRecipe(filePath: string): ParsedRecipe {
+function pickNum(obj: Record<string, unknown> | undefined, keys: string[]): number | undefined {
+  if (!obj) return undefined;
+  for (const k of keys) {
+    const v = obj[k];
+    if (v != null && !Number.isNaN(Number(v))) return Number(v);
+  }
+  return undefined;
+}
+
+function pickStr(obj: Record<string, unknown> | undefined, keys: string[]): string | undefined {
+  if (!obj) return undefined;
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === 'string' && v.trim() !== '') return v;
+  }
+  return undefined;
+}
+
+function pickBool(obj: Record<string, unknown> | undefined, keys: string[]): boolean | undefined {
+  if (!obj) return undefined;
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === 'boolean') return v;
+  }
+  return undefined;
+}
+export function parseYamlRecipe(filePath: string): ParsedRecipe {
   if (!existsSync(filePath)) {
     throw new Error(`File non trovato: ${filePath}`);
   }
@@ -282,21 +312,31 @@ function parseYamlRecipe(filePath: string): ParsedRecipe {
   const ebc = params['ebc'] != null ? Number(params['ebc']) : undefined;
   const abv_percent = params['abv_percent'] != null ? Number(params['abv_percent']) : undefined;
   const efficiency_percent = params['efficienza_percent'] != null ? Number(params['efficienza_percent']) : undefined;
-  const boil_time_minutes = params['bollitura_min'] != null ? Number(params['bollitura_min']) : undefined;
+
+  // Bollitura: duración puede estar en `parametri.bollitura_min` o `bollitura.durata_min`
+  const bollitura = (d['bollitura'] ?? d['bolliura']) as Record<string, unknown> | undefined;
+  const boil_time_minutes = pickNum(params, ['bollitura_min', 'duracion_bollitura_min'])
+    ?? pickNum(bollitura, ['durata_min', 'duration_min', 'duracion_min']);
 
   // Volumes
-  const pre_boil_volume_liters = params['pre_boil_litri'] != null ? Number(params['pre_boil_litri']) : undefined;
-  const post_boil_volume_liters = params['post_boil_litri'] != null ? Number(params['post_boil_litri']) : undefined;
-  const fermentation_volume_liters = params['fermentatore_litri'] != null ? Number(params['fermentatore_litri']) : undefined;
-  const packaging_volume_liters = params['confezionamento_litri'] != null ? Number(params['confezionamento_litri']) : undefined;
+  const pre_boil_volume_liters = pickNum(params, ['pre_boil_litri', 'pre_boil_volumen_litri'])
+    ?? pickNum(bollitura, ['volume_pre_boil_litri', 'pre_boil_litri', 'volumen_pre_boil_litri']);
+  const post_boil_volume_liters = pickNum(params, ['post_boil_litri', 'post_boil_volumen_litri'])
+    ?? pickNum(bollitura, ['volume_post_boil_litri', 'post_boil_litri', 'volumen_post_boil_litri']);
+  const fermentation_volume_liters = pickNum(params, ['fermentatore_litri', 'volume_fermentatore', 'fermentador_litri']);
+  const packaging_volume_liters = pickNum(params, ['confezionamento_litri', 'confezionamiento_litri', 'envasado_litri', 'embotellado_litri']);
 
   // Equipment
   const impianto = typeof params['impianto'] === 'string' ? params['impianto'] : undefined;
 
-  // Carbonation
-  const carbonation_volumes = params['carbonazione_vol'] != null ? Number(params['carbonazione_vol']) : undefined;
-  const carbonation_method = typeof params['carbonazione_metodo'] === 'string' ? params['carbonazione_metodo'] : undefined;
-  const priming_sugar_gl = params['priming_gl'] != null ? Number(params['priming_gl']) : undefined;
+  // Carbonation: en `parametri` o sección `carbonazione`
+  const carbonazione = (d['carbonazione'] ?? d['carbonatacion']) as Record<string, unknown> | undefined;
+  const carbonation_volumes = pickNum(params, ['carbonazione_vol', 'co2_volumi'])
+    ?? pickNum(carbonazione, ['co2_volumi', 'co2_vol', 'volumen_co2', 'vol_co2']);
+  const carbonation_method = pickStr(params, ['carbonazione_metodo', 'metodo_carbonatacion'])
+    ?? pickStr(carbonazione, ['metodo', 'metodo_carbonatacion']);
+  const priming_sugar_gl = pickNum(params, ['priming_gl', 'priming_g_l'])
+    ?? pickNum(carbonazione, ['zucchero_g_per_litro', 'azucar_g_por_litro', 'priming_gl']);
 
   // Grist → grain_bill
   const grist = Array.isArray(d['grist']) ? d['grist'] as Array<Record<string, unknown>> : [];
@@ -350,12 +390,12 @@ function parseYamlRecipe(filePath: string): ParsedRecipe {
   // Water profile
   const acqua = d['acqua'] as Record<string, unknown> | undefined;
   const water_profile = acqua ? {
-    ca: Number(acqua['ca'] ?? 0),
-    mg: Number(acqua['mg'] ?? 0),
-    na: Number(acqua['na'] ?? 0),
-    cl: Number(acqua['cl'] ?? 0),
-    so4: Number(acqua['so4'] ?? 0),
-    hco3: Number(acqua['hco3'] ?? 0),
+    ca: Number(pickNum(acqua, ['ca', 'ca_mg_l']) ?? 0),
+    mg: Number(pickNum(acqua, ['mg', 'mg_mg_l']) ?? 0),
+    na: Number(pickNum(acqua, ['na', 'na_mg_l']) ?? 0),
+    cl: Number(pickNum(acqua, ['cl', 'cl_mg_l']) ?? 0),
+    so4: Number(pickNum(acqua, ['so4', 'so4_mg_l']) ?? 0),
+    hco3: Number(pickNum(acqua, ['hco3', 'hco3_mg_l']) ?? 0),
   } : undefined;
 
   // Description / notes
@@ -379,39 +419,40 @@ function parseYamlRecipe(filePath: string): ParsedRecipe {
   })) : undefined;
 
   // ── Datos de cotización (brewday) ──
-  // Agua: sección `agua` (o `acqua`) con mash/sparge/total
+  // Agua: sección `agua`/`acqua` con mash/sparge/total, o `mash.acqua_strike_litri`
   const agua = (d['agua'] ?? d['acqua']) as Record<string, unknown> | undefined;
-  const mash_water_liters = agua && agua['mash_litri'] != null ? Number(agua['mash_litri']) : undefined;
-  const sparge_water_liters = agua && agua['sparge_litri'] != null ? Number(agua['sparge_litri']) : undefined;
-  const total_water_liters = agua && agua['total_litri'] != null ? Number(agua['total_litri']) : undefined;
+  const mash_water_liters = pickNum(agua, ['mash_litri', 'mash_agua_litri', 'strike_litri'])
+    ?? pickNum(mash, ['acqua_strike_litri', 'strike_litri', 'agua_strike_litri']);
+  const sparge_water_liters = pickNum(agua, ['sparge_litri', 'sparge_agua_litri'])
+    ?? pickNum(d['sparge'] as Record<string, unknown> | undefined, ['sparge_litri', 'volumen_litri', 'litri']);
+  const total_water_liters = pickNum(agua, ['total_litri', 'total_agua_litri', 'agua_total_litri']);
 
-  // Sales de mash y ácido láctico: sección "sales" (o "mash_salts")
+  // Sales de mash y ácido láctico: sección "sales"/"mash_salts", o dentro de agua
   const sales = (d['sales'] ?? d['mash_salts']) as Record<string, unknown> | undefined;
   const mash_salts = sales ? {
-    gypsum_g: sales['gesso_g'] != null ? Number(sales['gesso_g']) : undefined,
-    cacl2_g: sales['cacl2_g'] != null ? Number(sales['cacl2_g']) : undefined,
-    epsom_g: sales['epsom_g'] != null ? Number(sales['epsom_g']) : undefined,
-    nahco3_g: sales['nahco3_g'] != null ? Number(sales['nahco3_g']) : undefined,
-    lactic_acid_ml: sales['acido_lactico_ml'] != null ? Number(sales['acido_lactico_ml']) : undefined,
+    gypsum_g: pickNum(sales, ['gesso_g', 'gypsum_g', 'gesso']),
+    cacl2_g: pickNum(sales, ['cacl2_g', 'cacl2']),
+    epsom_g: pickNum(sales, ['epsom_g', 'epsom']),
+    nahco3_g: pickNum(sales, ['nahco3_g', 'nahco3']),
+    lactic_acid_ml: pickNum(sales, ['acido_lactico_ml', 'lactic_acid_ml', 'acido_lactico']),
   } : undefined;
 
-  // Mash-in: sección "mash" con "temperatura_in_c" o "mash_in_c"
-  const mashInTemp = mash['temperatura_in_c'] != null ? Number(mash['temperatura_in_c'])
-    : mash['mash_in_c'] != null ? Number(mash['mash_in_c']) : undefined;
+  // Mash-in: sección "mash" con variantes
+  const mashInTemp = pickNum(mash, ['temperatura_in_c', 'mash_in_c', 'temperatura_strike_c', 'strike_c']);
 
   // Gravedades pre/post-boil: sección "bollitura"
-  const bollitura = (d['bollitura'] ?? {}) as Record<string, unknown>;
-  const pre_boil_og = bollitura['og_pre_boil'] != null ? Number(bollitura['og_pre_boil']) : undefined;
-  const post_boil_og = bollitura['og_post_boil'] != null ? Number(bollitura['og_post_boil']) : undefined;
+  const pre_boil_og = pickNum(bollitura, ['og_pre_boil', 'gravedad_pre_boil', 'pre_boil_og'])
+    ?? pickNum(params, ['og_pre_boil', 'pre_boil_og']);
+  const post_boil_og = pickNum(bollitura, ['og_post_boil', 'gravedad_post_boil', 'post_boil_og'])
+    ?? pickNum(params, ['og_post_boil', 'post_boil_og']);
 
   // Fermentación: días primaria y maduración
-  const primary_days = ferm['primaria_giorni'] != null ? Number(ferm['primaria_giorni']) : undefined;
-  const conditioning_days = ferm['madurazione_giorni'] != null ? Number(ferm['madurazione_giorni']) : undefined;
+  const primary_days = pickNum(ferm, ['primaria_giorni', 'primaria_dias', 'dias_primaria']);
+  const conditioning_days = pickNum(ferm, ['madurazione_giorni', 'maduracion_dias', 'dias_maduracion']);
 
   // Carbonatación: temperatura de servicio y tipo de botella
-  const carbonazione = (d['carbonazione'] ?? {}) as Record<string, unknown>;
-  const serving_temp_c = carbonazione['temperatura_servizio_c'] != null ? Number(carbonazione['temperatura_servizio_c']) : undefined;
-  const bottle_type = typeof carbonazione['tipo_botella'] === 'string' ? carbonazione['tipo_botella'] : undefined;
+  const serving_temp_c = pickNum(carbonazione, ['temperatura_servizio_c', 'temperatura_servicio_c', 'servicio_c']);
+  const bottle_type = pickStr(carbonazione, ['tipo_botella', 'tipo_botella', 'botella']);
 
   // Validate required fields
   const missing: string[] = [];
@@ -486,7 +527,7 @@ interface ValidationResult {
   carbonationIssues: string[];
 }
 
-function validateRecipe(r: ParsedRecipe): ValidationResult {
+export function validateRecipe(r: ParsedRecipe): ValidationResult {
   const style = findStyle(r.beer_style);
   const issues: string[] = [];
   const warnings: string[] = [];
